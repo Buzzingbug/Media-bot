@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  discord-media-bot:
+    build: .
+    container_name: discord-media-bot
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
