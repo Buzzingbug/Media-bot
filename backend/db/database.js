@@ -5,6 +5,11 @@ const isPostgres = !!process.env.DATABASE_URL;
 let db = null;
 let pgPool = null;
 
+let resolveDbReady;
+const waitDb = new Promise((resolve) => {
+    resolveDbReady = resolve;
+});
+
 if (isPostgres) {
     const { Pool } = require('pg');
     // Railway provides DATABASE_URL. For production, rejecting unauthorized SSL is standard, but sometimes needs to be relaxed
@@ -15,7 +20,9 @@ if (isPostgres) {
         }
     });
     console.log('[DB] Configured for PostgreSQL.');
-    initDbPostgres();
+    initDbPostgres().then(() => {
+        resolveDbReady();
+    });
 } else {
     const sqlite3 = require('sqlite3').verbose();
     const dbDir = path.join(__dirname, '../../data');
@@ -28,6 +35,7 @@ if (isPostgres) {
         } else {
             console.log('[DB] Connected to SQLite database.');
             initDbSqlite();
+            resolveDbReady();
         }
     });
 }
@@ -283,5 +291,6 @@ module.exports = {
     isRedditPostProcessed,
     markRedditPostProcessed,
     isRedgifsPostProcessed,
-    markRedgifsPostProcessed
+    markRedgifsPostProcessed,
+    waitDb
 };
