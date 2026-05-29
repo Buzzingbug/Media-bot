@@ -97,11 +97,12 @@ router.get('/logs', async (req, res) => {
     }
 });
 
-// Get available channels
+// Get available channels and servers (guilds)
 router.get('/channels', (req, res) => {
     try {
         const channels = bot.getChannels();
-        res.json({ channels });
+        const guilds = bot.getGuilds();
+        res.json({ channels, guilds });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

@@ -1,14 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Square, Settings, HardDrive, Hash, Image as ImageIcon, Video, Activity, RefreshCw, MonitorUp, Key, Plus, Trash2 } from 'lucide-react';
+import { Play, Square, Settings, HardDrive, Hash, Image as ImageIcon, Video, Activity, RefreshCw, MonitorUp, Plus, Trash2, ShieldAlert } from 'lucide-react';
 import './index.css';
 
-const API_BASE = 'http://localhost:3001/api';
+const API_BASE = window.location.origin.includes('localhost') 
+  ? 'http://localhost:3001/api' 
+  : '/api';
 
 function App() {
   const [activeTab, setActiveTab] = useState('discord');
   
+  // New State for servers
+  const [guilds, setGuilds] = useState([]);
+  const [selectedGuildId, setSelectedGuildId] = useState('');
+  
   const [config, setConfig] = useState({
-    token: '',
     settings: {
       sourceGuild: '',
       sourceChannel: '',
@@ -82,15 +87,14 @@ function App() {
         fetch(`${API_BASE}/config`),
         fetch(`${API_BASE}/reddit/config`),
         fetch(`${API_BASE}/redgifs/config`),
-        fetch(`${API_BASE}/channels`).catch(() => ({ json: () => ({ channels: [] }) }))
+        fetch(`${API_BASE}/channels`).catch(() => ({ json: () => ({ channels: [], guilds: [] }) }))
       ]);
       
       const discordData = await discordRes.json();
       if (discordData.settings) {
         setConfig(prev => ({
           ...prev,
-          settings: { ...prev.settings, ...discordData.settings },
-          token: discordData.hasToken ? '********' : ''
+          settings: { ...prev.settings, ...discordData.settings }
         }));
       }
 
@@ -120,6 +124,12 @@ function App() {
         const channelsData = await channelsRes.json();
         if (channelsData.channels) {
           setChannels(channelsData.channels);
+        }
+        if (channelsData.guilds) {
+          setGuilds(channelsData.guilds);
+          if (channelsData.guilds.length > 0 && !selectedGuildId) {
+            setSelectedGuildId(channelsData.guilds[0].id);
+          }
         }
       }
     } catch (err) {
@@ -151,8 +161,6 @@ function App() {
   const handleSaveDiscord = async () => {
     try {
       const payload = { settings: config.settings };
-      if (config.token !== '********') payload.token = config.token;
-      
       await fetch(`${API_BASE}/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -261,6 +269,7 @@ function App() {
       id: Date.now().toString(),
       subreddit: '',
       channelId: '',
+      guildId: selectedGuildId, // Automatically tag to selected Server
       embedMode: true,
       excludeNsfw: true,
       active: true,
@@ -310,6 +319,7 @@ function App() {
       id: Date.now().toString(),
       searchTerm: '',
       channelId: '',
+      guildId: selectedGuildId, // Automatically tag to selected Server
       active: true,
       postDelay: 2.5,
       sort: 'recent'
@@ -337,12 +347,65 @@ function App() {
     }));
   };
 
+  // Helper to filter channels by selected server
+  const filteredChannels = channels.filter(c => c.guildId === selectedGuildId);
+
+  // Helper to filter feeds by selected server
+  const filteredRedditFeeds = redditConfig.settings.feeds.filter(f => f.guildId === selectedGuildId || !f.guildId);
+  const filteredRedgifsFeeds = redgifsConfig.settings.feeds.filter(f => f.guildId === selectedGuildId || !f.guildId);
+
   return (
     <div className="app-container">
       <div className="header">
         <h1>Media Vault</h1>
         <p>Seamlessly backup media and integrate Reddit feeds directly into Discord</p>
       </div>
+
+      {/* Connection Warning Banner */}
+      {!status.isReady && (
+        <div style={{
+          background: 'rgba(239, 68, 68, 0.15)',
+          border: '1px solid rgb(239, 68, 68)',
+          borderRadius: '0.75rem',
+          padding: '1rem',
+          marginBottom: '2rem',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          color: '#fca5a5'
+        }}>
+          <ShieldAlert size={20} />
+          <div>
+            <strong>Discord Client Offline:</strong> The bot is currently offline. Please configure a valid <code>DISCORD_TOKEN</code> inside your Railway variables so the server list and channels can populate!
+          </div>
+        </div>
+      )}
+
+      {/* Global Server Selector */}
+      {status.isReady && guilds.length > 0 && (
+        <div className="glass-panel" style={{ marginBottom: '2rem', padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <HardDrive size={22} color="var(--accent)" />
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Active Discord Server</h3>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Configure setup & channel lists for this server</p>
+            </div>
+          </div>
+          <select 
+            className="form-control" 
+            style={{ maxWidth: '300px', margin: 0, border: '1px solid var(--accent)' }} 
+            value={selectedGuildId} 
+            onChange={e => {
+              setSelectedGuildId(e.target.value);
+              // Update source/dest guilds in Discord backup settings if empty
+              if (!config.settings.sourceGuild) updateSetting('sourceGuild', e.target.value);
+              if (!config.settings.destGuild) updateSetting('destGuild', e.target.value);
+            }}
+          >
+            {guilds.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+          </select>
+        </div>
+      )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', justifyContent: 'center' }}>
@@ -378,21 +441,16 @@ function App() {
                 <Settings size={24} color="var(--accent)" /> Discord Backup Config
               </h2>
               
-              <div className="form-group">
-                <label>Discord Bot Token</label>
-                <input type="password" className="form-control" placeholder="Paste your bot token here..." value={config.token} onChange={e => setConfig({...config, token: e.target.value})} />
-              </div>
-
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <div className="form-group" style={{ flex: 1 }}>
                   <label><HardDrive size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Source Server ID</label>
-                  <input type="text" className="form-control" value={config.settings.sourceGuild} onChange={e => updateSetting('sourceGuild', e.target.value)} />
+                  <input type="text" className="form-control" placeholder="Source Server Guild ID..." value={config.settings.sourceGuild || selectedGuildId} onChange={e => updateSetting('sourceGuild', e.target.value)} />
                 </div>
                 <div className="form-group" style={{ flex: 1 }}>
-                  <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Source Channel ID</label>
+                  <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Source Channel</label>
                   <select className="form-control" value={config.settings.sourceChannel} onChange={e => updateSetting('sourceChannel', e.target.value)}>
                     <option value="">Select Channel...</option>
-                    {channels.map(c => <option key={c.id} value={c.id}>{c.name} ({c.guild})</option>)}
+                    {filteredChannels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               </div>
@@ -400,13 +458,13 @@ function App() {
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <div className="form-group" style={{ flex: 1 }}>
                   <label><HardDrive size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Dest Server ID</label>
-                  <input type="text" className="form-control" value={config.settings.destGuild} onChange={e => updateSetting('destGuild', e.target.value)} />
+                  <input type="text" className="form-control" placeholder="Destination Server Guild ID..." value={config.settings.destGuild || selectedGuildId} onChange={e => updateSetting('destGuild', e.target.value)} />
                 </div>
                 <div className="form-group" style={{ flex: 1 }}>
-                  <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Dest Channel ID</label>
+                  <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Dest Channel</label>
                   <select className="form-control" value={config.settings.destChannel} onChange={e => updateSetting('destChannel', e.target.value)}>
                     <option value="">Select Channel...</option>
-                    {channels.map(c => <option key={c.id} value={c.id}>{c.name} ({c.guild})</option>)}
+                    {filteredChannels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
                 </div>
               </div>
@@ -511,7 +569,7 @@ function App() {
                 </div>
               </div>
 
-              {redditConfig.settings.feeds.map(feed => (
+              {filteredRedditFeeds.map(feed => (
                 <div key={feed.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', borderLeft: feed.active ? '4px solid var(--success)' : '4px solid #555' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', gap: '1rem', flex: 1, marginRight: '1rem' }}>
@@ -523,7 +581,7 @@ function App() {
                         <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Target Channel</label>
                         <select className="form-control" value={feed.channelId} onChange={e => updateFeed(feed.id, 'channelId', e.target.value)}>
                           <option value="">Select Channel...</option>
-                          {channels.map(c => <option key={c.id} value={c.id}>{c.name} ({c.guild})</option>)}
+                          {filteredChannels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                       </div>
                     </div>
@@ -605,9 +663,9 @@ function App() {
                 </div>
               ))}
 
-              {redditConfig.settings.feeds.length === 0 && (
+              {filteredRedditFeeds.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-                  No Reddit feeds configured. Click "Add Feed" to start!
+                  No Reddit feeds configured for this server. Click "Add Feed" to start!
                 </div>
               )}
 
@@ -663,7 +721,7 @@ function App() {
                 </div>
               </div>
 
-              {redgifsConfig.settings.feeds.map(feed => (
+              {filteredRedgifsFeeds.map(feed => (
                 <div key={feed.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', borderLeft: feed.active ? '4px solid var(--success)' : '4px solid #555' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', gap: '1rem', flex: 1, marginRight: '1rem' }}>
@@ -675,7 +733,7 @@ function App() {
                         <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Target Channel</label>
                         <select className="form-control" value={feed.channelId} onChange={e => updateRedgifsFeed(feed.id, 'channelId', e.target.value)}>
                           <option value="">Select Channel...</option>
-                          {channels.map(c => <option key={c.id} value={c.id}>{c.name} ({c.guild})</option>)}
+                          {filteredChannels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                       </div>
                     </div>
@@ -714,9 +772,9 @@ function App() {
                 </div>
               ))}
 
-              {redgifsConfig.settings.feeds.length === 0 && (
+              {filteredRedgifsFeeds.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
-                  No Redgifs feeds configured. Click "Add Feed" to start!
+                  No Redgifs feeds configured for this server. Click "Add Feed" to start!
                 </div>
               )}
 

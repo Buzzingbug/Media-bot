@@ -185,11 +185,24 @@ function getChannels() {
                 channels.push({
                     id: c.id,
                     name: `#${c.name}`,
-                    guild: guild.name
+                    guild: guild.name,
+                    guildId: guild.id
                 });
             });
     });
     return channels;
+}
+
+function getGuilds() {
+    if (!isReady()) return [];
+    const guilds = [];
+    client.guilds.cache.forEach(guild => {
+        guilds.push({
+            id: guild.id,
+            name: guild.name
+        });
+    });
+    return guilds;
 }
 
 module.exports = {
@@ -205,5 +218,6 @@ module.exports = {
     startRedgifsPoller,
     stopRedgifsPoller,
     isRedgifsPollerRunning,
-    getChannels
+    getChannels,
+    getGuilds
 };
