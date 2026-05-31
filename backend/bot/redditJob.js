@@ -10,7 +10,7 @@ const FETCH_OPTIONS = {
 const Parser = require('rss-parser');
 const parser = new Parser();
 
-async function processSingleFeed(feedConfig, client, isRunningFunc) {
+async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
     if (isRunningFunc && !isRunningFunc()) return;
 
     if (!feedConfig.active || !feedConfig.subreddit || !feedConfig.channelId) {
@@ -21,11 +21,11 @@ async function processSingleFeed(feedConfig, client, isRunningFunc) {
 
     const channel = client.channels.cache.get(feedConfig.channelId);
     if (!channel) {
-        db.addLog('error', `[Reddit] Could not find Discord channel ${feedConfig.channelId} for r/${cleanSubreddit}`);
+        db.addLog('error', `[Reddit] Could not find Discord channel ${feedConfig.channelId} for r/${cleanSubreddit}`, guildId);
         return;
     }
 
-    db.addLog('info', `[Reddit] Polling r/${cleanSubreddit} via RSS API...`);
+    db.addLog('info', `[Reddit] Polling r/${cleanSubreddit} via RSS API...`, guildId);
     
     try {
         const sort = feedConfig.sort || 'new';
@@ -95,7 +95,6 @@ async function processSingleFeed(feedConfig, client, isRunningFunc) {
 
             try {
                 if (feedConfig.embedMode) {
-                    // Rich Embed
                     const embed = new EmbedBuilder()
                         .setTitle((post.title || '').substring(0, 256))
                         .setURL(post.link)
@@ -107,11 +106,9 @@ async function processSingleFeed(feedConfig, client, isRunningFunc) {
                         embed.setImage(discordPlaybackUrl);
                         await channel.send({ embeds: [embed] });
                     } else {
-                        // Discord cannot embed videos inside Rich Embeds. Send raw link alongside embed.
                         await channel.send({ embeds: [embed], content: `[Watch Video](${discordPlaybackUrl})` });
                     }
                 } else {
-                    // Minimal Text
                     const icon = isVideo ? 'Watch Video' : 'View Media';
                     await channel.send({ content: `[${icon}](${discordPlaybackUrl})` });
                 }
@@ -119,39 +116,40 @@ async function processSingleFeed(feedConfig, client, isRunningFunc) {
                 await db.markRedditPostProcessed(postId, cleanSubreddit);
                 newPostsCount++;
                 
-                // Use customized delay per feed (fallback to 2.5s)
                 const delayMs = (feedConfig.postDelay || 2.5) * 1000;
                 await new Promise(r => setTimeout(r, delayMs));
             } catch (discordErr) {
-                db.addLog('error', `[Reddit] Discord post failed: ${discordErr.message}`);
+                db.addLog('error', `[Reddit] Discord post failed: ${discordErr.message}`, guildId);
             }
         }
         
         if (newPostsCount > 0) {
-            db.addLog('info', `[Reddit] Found and posted ${newPostsCount} new items from r/${cleanSubreddit}`);
+            db.addLog('info', `[Reddit] Found and posted ${newPostsCount} new items from r/${cleanSubreddit}`, guildId);
         }
     } catch (feedErr) {
-        db.addLog('error', `[Reddit] RSS Error for r/${cleanSubreddit}: ${feedErr.message}`);
+        db.addLog('error', `[Reddit] RSS Error for r/${cleanSubreddit}: ${feedErr.message}`, guildId);
     }
 }
 
-async function checkRedditFeed(client, isRunningFunc) {
+async function checkRedditFeed(client, isRunningFunc, guildId) {
     try {
-        const config = await db.getConfig('reddit_settings');
+        const config = guildId
+            ? await db.getGuildConfig(guildId, 'reddit_settings')
+            : await db.getConfig('reddit_settings');
+
         if (!config || !config.feeds || config.feeds.length === 0) {
-            return; // Not fully configured
+            return;
         }
         
         const promises = config.feeds.map(async (feedConfig, index) => {
-            // Stagger requests by 2000ms per feed to avoid Reddit API rate limits (403/429)
             if (index > 0) {
                 await new Promise(r => setTimeout(r, index * 2000));
             }
-            return processSingleFeed(feedConfig, client, isRunningFunc);
+            return processSingleFeed(feedConfig, client, isRunningFunc, guildId);
         });
         await Promise.allSettled(promises);
     } catch (err) {
-        db.addLog('error', `[Reddit Job] Error: ${err.message}`);
+        db.addLog('error', `[Reddit Job] Error: ${err.message}`, guildId);
     }
 }
 

@@ -17,7 +17,7 @@ async function getRedgifsToken() {
     return null;
 }
 
-async function processSingleFeed(feedConfig, client, isRunningFunc) {
+async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
     if (isRunningFunc && !isRunningFunc()) return;
 
     if (!feedConfig.active || !feedConfig.searchTerm || !feedConfig.channelId) {
@@ -26,14 +26,14 @@ async function processSingleFeed(feedConfig, client, isRunningFunc) {
 
     const channel = client.channels.cache.get(feedConfig.channelId);
     if (!channel) {
-        db.addLog('error', `[Redgifs] Could not find Discord channel ${feedConfig.channelId}`);
+        db.addLog('error', `[Redgifs] Could not find Discord channel ${feedConfig.channelId}`, guildId);
         return;
     }
 
     const token = await getRedgifsToken();
     if (!token) return;
 
-    db.addLog('info', `[Redgifs] Searching for '${feedConfig.searchTerm}'...`);
+    db.addLog('info', `[Redgifs] Searching for '${feedConfig.searchTerm}'...`, guildId);
 
     try {
         const order = feedConfig.sort || 'recent'; // recent, top, trending
@@ -79,29 +79,38 @@ async function processSingleFeed(feedConfig, client, isRunningFunc) {
                 const delayMs = (feedConfig.postDelay || 2.5) * 1000;
                 await new Promise(r => setTimeout(r, delayMs));
             } catch (discordErr) {
-                db.addLog('error', `[Redgifs] Discord post failed: ${discordErr.message}`);
+                db.addLog('error', `[Redgifs] Discord post failed: ${discordErr.message}`, guildId);
             }
         }
         
         if (newPostsCount > 0) {
-            db.addLog('info', `[Redgifs] Found and posted ${newPostsCount} new items for '${feedConfig.searchTerm}'`);
+            db.addLog('info', `[Redgifs] Found and posted ${newPostsCount} new items for '${feedConfig.searchTerm}'`, guildId);
         }
     } catch (feedErr) {
-        db.addLog('error', `[Redgifs] API Error for '${feedConfig.searchTerm}': ${feedErr.message}`);
+        db.addLog('error', `[Redgifs] API Error for '${feedConfig.searchTerm}': ${feedErr.message}`, guildId);
     }
 }
 
-async function checkRedgifsFeed(client, isRunningFunc) {
+async function checkRedgifsFeed(client, isRunningFunc, guildId) {
     try {
-        const config = await db.getConfig('redgifs_settings');
+        const config = guildId
+            ? await db.getGuildConfig(guildId, 'redgifs_settings')
+            : await db.getConfig('redgifs_settings');
+
         if (!config || !config.feeds || config.feeds.length === 0) {
             return;
         }
         
-        const promises = config.feeds.map(feedConfig => processSingleFeed(feedConfig, client, isRunningFunc));
+        const promises = config.feeds.map((feedConfig, index) => {
+            if (index > 0) {
+                return new Promise(r => setTimeout(r, index * 1500))
+                    .then(() => processSingleFeed(feedConfig, client, isRunningFunc, guildId));
+            }
+            return processSingleFeed(feedConfig, client, isRunningFunc, guildId);
+        });
         await Promise.allSettled(promises);
     } catch (err) {
-        db.addLog('error', `[Redgifs Job] Error: ${err.message}`);
+        db.addLog('error', `[Redgifs Job] Error: ${err.message}`, guildId);
     }
 }
 

@@ -10,11 +10,12 @@ let jobRunning = false;
 let currentProgress = { total: 0, processed: 0, skipped: 0, errors: 0 };
 let abortController = null;
 
-let redditIntervalId = null;
-let isRedditRunning = false;
+// Per-guild poller state — keyed by guildId
+const redditIntervals = new Map();   // guildId -> intervalId
+const redditRunning   = new Map();   // guildId -> boolean
 
-let redgifsIntervalId = null;
-let isRedgifsRunning = false;
+const redgifsIntervals = new Map();
+const redgifsRunning   = new Map();
 
 async function initializeIfConfigured() {
     let token = await db.getConfig('discord_token');
@@ -84,11 +85,9 @@ async function startBackupJob() {
     jobRunning = true;
     abortController = new AbortController();
     
-    // Reset progress
     currentProgress = { total: 0, processed: 0, skipped: 0, errors: 0 };
     db.addLog('info', `Starting backup job with limit ${settings.limit}`);
     
-    // Run asynchronously
     runJob(client, settings, currentProgress, abortController.signal)
         .then(() => {
             db.addLog('info', `Backup job completed successfully. Processed: ${currentProgress.processed}, Skipped: ${currentProgress.skipped}`);
@@ -112,73 +111,78 @@ function stopBackupJob() {
     }
 }
 
-async function startRedditPoller() {
+// ── Per-guild Reddit poller ──────────────────────────────────────────────────
+
+async function startRedditPoller(guildId) {
     if (!isReady()) throw new Error("Bot is not ready.");
-    if (isRedditRunning) throw new Error("Reddit poller is already running.");
+    if (redditRunning.get(guildId)) throw new Error("Reddit poller is already running for this server.");
     
-    const config = await db.getConfig('reddit_settings');
+    const config = await db.getGuildConfig(guildId, 'reddit_settings');
     const intervalMinutes = config && config.globalInterval ? config.globalInterval : 10;
     
-    isRedditRunning = true;
-    db.addLog('info', `[Reddit] Started polling every ${intervalMinutes} minutes.`);
+    redditRunning.set(guildId, true);
+    db.addLog('info', `[Reddit] Started polling for guild ${guildId} every ${intervalMinutes} minutes.`, guildId);
     
-    // Run immediately once
-    checkRedditFeed(client, isRedditPollerRunning);
+    const runCheck = () => checkRedditFeed(client, () => redditRunning.get(guildId) === true, guildId);
     
-    // Set interval
-    redditIntervalId = setInterval(() => {
-        checkRedditFeed(client, isRedditPollerRunning);
-    }, intervalMinutes * 60 * 1000);
+    runCheck();
+    const intervalId = setInterval(runCheck, intervalMinutes * 60 * 1000);
+    redditIntervals.set(guildId, intervalId);
 }
 
-function stopRedditPoller() {
-    if (isRedditRunning && redditIntervalId) {
-        clearInterval(redditIntervalId);
-        redditIntervalId = null;
-        isRedditRunning = false;
-        db.addLog('info', `[Reddit] Stopped polling.`);
+function stopRedditPoller(guildId) {
+    if (redditRunning.get(guildId) && redditIntervals.has(guildId)) {
+        clearInterval(redditIntervals.get(guildId));
+        redditIntervals.delete(guildId);
+        redditRunning.set(guildId, false);
+        db.addLog('info', `[Reddit] Stopped polling for guild ${guildId}.`, guildId);
     }
 }
 
-function isRedditPollerRunning() {
-    return isRedditRunning;
+function isRedditPollerRunning(guildId) {
+    return redditRunning.get(guildId) === true;
 }
 
-async function startRedgifsPoller() {
+// ── Per-guild Redgifs poller ─────────────────────────────────────────────────
+
+async function startRedgifsPoller(guildId) {
     if (!isReady()) throw new Error("Bot is not ready.");
-    if (isRedgifsRunning) throw new Error("Redgifs poller is already running.");
+    if (redgifsRunning.get(guildId)) throw new Error("Redgifs poller is already running for this server.");
     
-    const config = await db.getConfig('redgifs_settings');
+    const config = await db.getGuildConfig(guildId, 'redgifs_settings');
     const intervalMinutes = config && config.globalInterval ? config.globalInterval : 10;
     
-    isRedgifsRunning = true;
-    db.addLog('info', `[Redgifs] Started polling every ${intervalMinutes} minutes.`);
+    redgifsRunning.set(guildId, true);
+    db.addLog('info', `[Redgifs] Started polling for guild ${guildId} every ${intervalMinutes} minutes.`, guildId);
     
-    checkRedgifsFeed(client, isRedgifsPollerRunning);
+    const runCheck = () => checkRedgifsFeed(client, () => redgifsRunning.get(guildId) === true, guildId);
     
-    redgifsIntervalId = setInterval(() => {
-        checkRedgifsFeed(client, isRedgifsPollerRunning);
-    }, intervalMinutes * 60 * 1000);
+    runCheck();
+    const intervalId = setInterval(runCheck, intervalMinutes * 60 * 1000);
+    redgifsIntervals.set(guildId, intervalId);
 }
 
-function stopRedgifsPoller() {
-    if (isRedgifsRunning && redgifsIntervalId) {
-        clearInterval(redgifsIntervalId);
-        redgifsIntervalId = null;
-        isRedgifsRunning = false;
-        db.addLog('info', `[Redgifs] Stopped polling.`);
+function stopRedgifsPoller(guildId) {
+    if (redgifsRunning.get(guildId) && redgifsIntervals.has(guildId)) {
+        clearInterval(redgifsIntervals.get(guildId));
+        redgifsIntervals.delete(guildId);
+        redgifsRunning.set(guildId, false);
+        db.addLog('info', `[Redgifs] Stopped polling for guild ${guildId}.`, guildId);
     }
 }
 
-function isRedgifsPollerRunning() {
-    return isRedgifsRunning;
+function isRedgifsPollerRunning(guildId) {
+    return redgifsRunning.get(guildId) === true;
 }
 
-function getChannels() {
+// ── Channel / Guild helpers ──────────────────────────────────────────────────
+
+function getChannels(guildId) {
     if (!isReady()) return [];
     
     const channels = [];
-    client.guilds.cache.forEach(guild => {
+
+    const processGuild = (guild) => {
         guild.channels.cache
             .filter(c => c.isTextBased())
             .forEach(c => {
@@ -189,7 +193,15 @@ function getChannels() {
                     guildId: guild.id
                 });
             });
-    });
+    };
+
+    if (guildId) {
+        const guild = client.guilds.cache.get(guildId);
+        if (guild) processGuild(guild);
+    } else {
+        client.guilds.cache.forEach(processGuild);
+    }
+
     return channels;
 }
 
@@ -199,7 +211,8 @@ function getGuilds() {
     client.guilds.cache.forEach(guild => {
         guilds.push({
             id: guild.id,
-            name: guild.name
+            name: guild.name,
+            icon: guild.iconURL({ size: 64, format: 'png' }) || null
         });
     });
     return guilds;

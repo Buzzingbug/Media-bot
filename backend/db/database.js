@@ -47,6 +47,13 @@ async function initDbPostgres() {
             value TEXT
         )`);
 
+        await runQuery(`CREATE TABLE IF NOT EXISTS guild_config (
+            guild_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT,
+            PRIMARY KEY (guild_id, key)
+        )`);
+
         await runQuery(`CREATE TABLE IF NOT EXISTS posted_files (
             url_hash TEXT PRIMARY KEY,
             url TEXT,
@@ -57,6 +64,7 @@ async function initDbPostgres() {
             id SERIAL PRIMARY KEY,
             level TEXT,
             message TEXT,
+            guild_id TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
@@ -85,6 +93,13 @@ function initDbSqlite() {
             value TEXT
         )`);
 
+        db.run(`CREATE TABLE IF NOT EXISTS guild_config (
+            guild_id TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT,
+            PRIMARY KEY (guild_id, key)
+        )`);
+
         db.run(`CREATE TABLE IF NOT EXISTS posted_files (
             url_hash TEXT PRIMARY KEY,
             url TEXT,
@@ -95,6 +110,7 @@ function initDbSqlite() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             level TEXT,
             message TEXT,
+            guild_id TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
@@ -195,32 +211,48 @@ async function setConfig(key, value) {
     }
 }
 
-async function addLog(level, message) {
-    await runQuery(`INSERT INTO logs (level, message) VALUES (?, ?)`, [level, message]);
-    
-    // Trim logs
+async function getGuildConfig(guildId, key) {
+    const row = await getQuery(`SELECT value FROM guild_config WHERE guild_id = ? AND key = ?`, [guildId, key]);
+    return row ? JSON.parse(row.value) : null;
+}
+
+async function setGuildConfig(guildId, key, value) {
+    const val = JSON.stringify(value);
     if (isPostgres) {
         await runQuery(`
-            DELETE FROM logs 
-            WHERE id NOT IN (
-                SELECT id FROM logs 
-                ORDER BY id DESC 
-                LIMIT 1000
-            )
-        `);
+            INSERT INTO guild_config (guild_id, key, value)
+            VALUES (?, ?, ?)
+            ON CONFLICT (guild_id, key)
+            DO UPDATE SET value = EXCLUDED.value
+        `, [guildId, key, val]);
     } else {
         await runQuery(`
-            DELETE FROM logs 
-            WHERE id NOT IN (
-                SELECT id FROM logs 
-                ORDER BY id DESC 
-                LIMIT 1000
-            )
-        `);
+            INSERT INTO guild_config (guild_id, key, value)
+            VALUES (?, ?, ?)
+            ON CONFLICT(guild_id, key)
+            DO UPDATE SET value = excluded.value
+        `, [guildId, key, val]);
     }
 }
 
-async function getLogs(limit = 100) {
+async function addLog(level, message, guildId = null) {
+    await runQuery(`INSERT INTO logs (level, message, guild_id) VALUES (?, ?, ?)`, [level, message, guildId]);
+    
+    // Trim logs to last 2000 total
+    await runQuery(`
+        DELETE FROM logs 
+        WHERE id NOT IN (
+            SELECT id FROM logs 
+            ORDER BY id DESC 
+            LIMIT 2000
+        )
+    `);
+}
+
+async function getLogs(limit = 100, guildId = null) {
+    if (guildId) {
+        return await allQuery(`SELECT * FROM logs WHERE guild_id = ? OR guild_id IS NULL ORDER BY id DESC LIMIT ?`, [guildId, limit]);
+    }
     return await allQuery(`SELECT * FROM logs ORDER BY id DESC LIMIT ?`, [limit]);
 }
 
@@ -284,6 +316,8 @@ async function markRedgifsPostProcessed(postId, searchTerm) {
 module.exports = {
     getConfig,
     setConfig,
+    getGuildConfig,
+    setGuildConfig,
     addLog,
     getLogs,
     isFilePosted,

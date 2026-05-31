@@ -3,7 +3,8 @@ const router = express.Router();
 const db = require('../db/database');
 const bot = require('../bot');
 
-// Get configuration
+// ── Bot Config (shared/global) ───────────────────────────────────────────────
+
 router.get('/config', async (req, res) => {
     try {
         const token = await db.getConfig('discord_token');
@@ -19,46 +20,35 @@ router.get('/config', async (req, res) => {
             dryRun: false,
             postDelay: 2.5
         };
-        
-        // Don't send the full token back for security, just whether it exists
-        res.json({ 
-            hasToken: !!token, 
-            settings 
-        });
+        res.json({ hasToken: !!token, settings });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Save configuration
 router.post('/config', async (req, res) => {
     try {
         const { token, settings } = req.body;
-        
         if (token) {
             await db.setConfig('discord_token', token);
-            // Re-initialize bot with new token
             await bot.initializeIfConfigured();
         }
-        
         if (settings) {
             await db.setConfig('backup_settings', settings);
         }
-        
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Start backup job
+// ── Backup job (not guild-specific) ─────────────────────────────────────────
+
 router.post('/start', async (req, res) => {
     try {
-        const isRunning = bot.isJobRunning();
-        if (isRunning) {
+        if (bot.isJobRunning()) {
             return res.status(400).json({ error: 'A backup job is already running' });
         }
-        
         await bot.startBackupJob();
         res.json({ success: true });
     } catch (err) {
@@ -66,7 +56,6 @@ router.post('/start', async (req, res) => {
     }
 });
 
-// Stop backup job
 router.post('/stop', async (req, res) => {
     try {
         bot.stopBackupJob();
@@ -76,31 +65,39 @@ router.post('/stop', async (req, res) => {
     }
 });
 
-// Get bot status
+// ── Status — per-guild ────────────────────────────────────────────────────────
+// Pass ?guildId=xxx or include guildId in body
+
 router.get('/status', (req, res) => {
+    const guildId = req.query.guildId || null;
     res.json({
         isReady: bot.isReady(),
         isRunning: bot.isJobRunning(),
-        isRedditRunning: bot.isRedditPollerRunning(),
-        isRedgifsRunning: bot.isRedgifsPollerRunning(),
+        isRedditRunning: guildId ? bot.isRedditPollerRunning(guildId) : false,
+        isRedgifsRunning: guildId ? bot.isRedgifsPollerRunning(guildId) : false,
         progress: bot.getProgress()
     });
 });
 
-// Get logs
+// ── Logs — per-guild ─────────────────────────────────────────────────────────
+
 router.get('/logs', async (req, res) => {
     try {
-        const logs = await db.getLogs(100);
+        const guildId = req.query.guildId || null;
+        const limit = parseInt(req.query.limit) || 100;
+        const logs = await db.getLogs(limit, guildId);
         res.json({ logs });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Get available channels and servers (guilds)
+// ── Channels / Guilds ────────────────────────────────────────────────────────
+
 router.get('/channels', (req, res) => {
     try {
-        const channels = bot.getChannels();
+        const guildId = req.query.guildId || null;
+        const channels = bot.getChannels(guildId);
         const guilds = bot.getGuilds();
         res.json({ channels, guilds });
     } catch (err) {
@@ -108,96 +105,106 @@ router.get('/channels', (req, res) => {
     }
 });
 
-// Get Reddit configuration
+// ── Reddit config — per-guild ─────────────────────────────────────────────────
+
 router.get('/reddit/config', async (req, res) => {
     try {
-        const settings = await db.getConfig('reddit_settings') || {
+        const guildId = req.query.guildId;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+
+        const settings = await db.getGuildConfig(guildId, 'reddit_settings') || {
             globalInterval: 10,
             feeds: []
         };
-        
-        res.json({ settings, hasCredentials: true }); // Mocking true so frontend doesn't complain if checked
+        res.json({ settings, hasCredentials: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Save Reddit configuration
 router.post('/reddit/config', async (req, res) => {
     try {
-        const { settings } = req.body;
-        await db.setConfig('reddit_settings', settings);
+        const { guildId, settings } = req.body;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+        await db.setGuildConfig(guildId, 'reddit_settings', settings);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Start Reddit poller
 router.post('/reddit/start', async (req, res) => {
     try {
-        if (bot.isRedditPollerRunning()) {
-            return res.status(400).json({ error: 'Reddit poller is already running' });
+        const { guildId } = req.body;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+        if (bot.isRedditPollerRunning(guildId)) {
+            return res.status(400).json({ error: 'Reddit poller is already running for this server' });
         }
-        await bot.startRedditPoller();
+        await bot.startRedditPoller(guildId);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Stop Reddit poller
 router.post('/reddit/stop', async (req, res) => {
     try {
-        bot.stopRedditPoller();
+        const { guildId } = req.body;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+        bot.stopRedditPoller(guildId);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Get Redgifs configuration
+// ── Redgifs config — per-guild ────────────────────────────────────────────────
+
 router.get('/redgifs/config', async (req, res) => {
     try {
-        const settings = await db.getConfig('redgifs_settings') || {
+        const guildId = req.query.guildId;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+
+        const settings = await db.getGuildConfig(guildId, 'redgifs_settings') || {
             globalInterval: 10,
             feeds: []
         };
-        
         res.json({ settings });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Save Redgifs configuration
 router.post('/redgifs/config', async (req, res) => {
     try {
-        const { settings } = req.body;
-        await db.setConfig('redgifs_settings', settings);
+        const { guildId, settings } = req.body;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+        await db.setGuildConfig(guildId, 'redgifs_settings', settings);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Start Redgifs poller
 router.post('/redgifs/start', async (req, res) => {
     try {
-        if (bot.isRedgifsPollerRunning()) {
-            return res.status(400).json({ error: 'Redgifs poller is already running' });
+        const { guildId } = req.body;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+        if (bot.isRedgifsPollerRunning(guildId)) {
+            return res.status(400).json({ error: 'Redgifs poller is already running for this server' });
         }
-        await bot.startRedgifsPoller();
+        await bot.startRedgifsPoller(guildId);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// Stop Redgifs poller
 router.post('/redgifs/stop', async (req, res) => {
     try {
-        bot.stopRedgifsPoller();
+        const { guildId } = req.body;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+        bot.stopRedgifsPoller(guildId);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });

@@ -69,11 +69,13 @@ function App() {
   useEffect(() => {
     fetchConfig();
     const interval = setInterval(() => {
-      fetchStatus();
-      fetchLogs();
+      if (selectedGuildId) {
+        fetchStatus();
+        fetchLogs();
+      }
     }, 2000);
     return () => clearInterval(interval);
-  }, []);
+  }, [selectedGuildId]);
 
   useEffect(() => {
     if (logsEndRef.current) {
@@ -81,12 +83,11 @@ function App() {
     }
   }, [logs]);
 
-  const fetchConfig = async () => {
+  const fetchConfig = async (guildId = null) => {
     try {
-      const [discordRes, redditRes, redgifsRes, channelsRes] = await Promise.all([
+      const targetGuild = guildId || selectedGuildId;
+      const [discordRes, channelsRes] = await Promise.all([
         fetch(`${API_BASE}/config`),
-        fetch(`${API_BASE}/reddit/config`),
-        fetch(`${API_BASE}/redgifs/config`),
         fetch(`${API_BASE}/channels`).catch(() => ({ json: () => ({ channels: [], guilds: [] }) }))
       ]);
       
@@ -98,38 +99,18 @@ function App() {
         }));
       }
 
-      const redditData = await redditRes.json();
-      if (redditData.settings) {
-        setRedditConfig(prev => ({
-          ...prev,
-          settings: { 
-            globalInterval: redditData.settings.globalInterval || 10,
-            feeds: redditData.settings.feeds || [] 
-          }
-        }));
-      }
-
-      const redgifsData = await redgifsRes.json();
-      if (redgifsData.settings) {
-        setRedgifsConfig(prev => ({
-          ...prev,
-          settings: { 
-            globalInterval: redgifsData.settings.globalInterval || 10,
-            feeds: redgifsData.settings.feeds || [] 
-          }
-        }));
-      }
-
       if (channelsRes) {
         const channelsData = await channelsRes.json();
         if (channelsData.channels) {
           setChannels(channelsData.channels);
         }
-        if (channelsData.guilds) {
+        if (channelsData.guilds && channelsData.guilds.length > 0) {
           setGuilds(channelsData.guilds);
-          if (channelsData.guilds.length > 0 && !selectedGuildId) {
-            setSelectedGuildId(channelsData.guilds[0].id);
-          }
+          const firstGuild = channelsData.guilds[0].id;
+          const activeGuild = guildId || selectedGuildId || firstGuild;
+          if (!selectedGuildId) setSelectedGuildId(activeGuild);
+          // Fetch guild-specific configs
+          await fetchGuildConfigs(activeGuild);
         }
       }
     } catch (err) {
@@ -137,9 +118,42 @@ function App() {
     }
   };
 
-  const fetchStatus = async () => {
+  const fetchGuildConfigs = async (guildId) => {
+    if (!guildId) return;
     try {
-      const res = await fetch(`${API_BASE}/status`);
+      const [redditRes, redgifsRes] = await Promise.all([
+        fetch(`${API_BASE}/reddit/config?guildId=${guildId}`),
+        fetch(`${API_BASE}/redgifs/config?guildId=${guildId}`)
+      ]);
+
+      const redditData = await redditRes.json();
+      if (redditData.settings) {
+        setRedditConfig({
+          settings: {
+            globalInterval: redditData.settings.globalInterval || 10,
+            feeds: redditData.settings.feeds || []
+          }
+        });
+      }
+
+      const redgifsData = await redgifsRes.json();
+      if (redgifsData.settings) {
+        setRedgifsConfig({
+          settings: {
+            globalInterval: redgifsData.settings.globalInterval || 10,
+            feeds: redgifsData.settings.feeds || []
+          }
+        });
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchStatus = async () => {
+    if (!selectedGuildId) return;
+    try {
+      const res = await fetch(`${API_BASE}/status?guildId=${selectedGuildId}`);
       const data = await res.json();
       setStatus(data);
     } catch (err) {
@@ -148,8 +162,9 @@ function App() {
   };
 
   const fetchLogs = async () => {
+    if (!selectedGuildId) return;
     try {
-      const res = await fetch(`${API_BASE}/logs`);
+      const res = await fetch(`${API_BASE}/logs?guildId=${selectedGuildId}`);
       const data = await res.json();
       setLogs(data.logs.reverse());
     } catch (err) {
@@ -191,13 +206,14 @@ function App() {
     }
   };
 
-  // Reddit Handlers
+  // Reddit Handlers — now pass guildId
   const handleSaveReddit = async () => {
+    if (!selectedGuildId) return alert('Select a server first');
     try {
       await fetch(`${API_BASE}/reddit/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: redditConfig.settings })
+        body: JSON.stringify({ guildId: selectedGuildId, settings: redditConfig.settings })
       });
       alert('Reddit Configuration saved successfully!');
     } catch (err) {
@@ -206,9 +222,14 @@ function App() {
   };
 
   const handleStartReddit = async () => {
+    if (!selectedGuildId) return alert('Select a server first');
     try {
       await handleSaveReddit();
-      const res = await fetch(`${API_BASE}/reddit/start`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/reddit/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: selectedGuildId })
+      });
       const data = await res.json();
       if (data.error) alert(data.error);
     } catch (err) {
@@ -217,20 +238,26 @@ function App() {
   };
 
   const handleStopReddit = async () => {
+    if (!selectedGuildId) return;
     try {
-      await fetch(`${API_BASE}/reddit/stop`, { method: 'POST' });
+      await fetch(`${API_BASE}/reddit/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: selectedGuildId })
+      });
     } catch (err) {
       console.error(err);
     }
   };
 
-  // Redgifs Handlers
+  // Redgifs Handlers — now pass guildId
   const handleSaveRedgifs = async () => {
+    if (!selectedGuildId) return alert('Select a server first');
     try {
       await fetch(`${API_BASE}/redgifs/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: redgifsConfig.settings })
+        body: JSON.stringify({ guildId: selectedGuildId, settings: redgifsConfig.settings })
       });
       alert('Redgifs Configuration saved successfully!');
     } catch (err) {
@@ -239,9 +266,14 @@ function App() {
   };
 
   const handleStartRedgifs = async () => {
+    if (!selectedGuildId) return alert('Select a server first');
     try {
       await handleSaveRedgifs();
-      const res = await fetch(`${API_BASE}/redgifs/start`, { method: 'POST' });
+      const res = await fetch(`${API_BASE}/redgifs/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: selectedGuildId })
+      });
       const data = await res.json();
       if (data.error) alert(data.error);
     } catch (err) {
@@ -250,8 +282,13 @@ function App() {
   };
 
   const handleStopRedgifs = async () => {
+    if (!selectedGuildId) return;
     try {
-      await fetch(`${API_BASE}/redgifs/stop`, { method: 'POST' });
+      await fetch(`${API_BASE}/redgifs/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: selectedGuildId })
+      });
     } catch (err) {
       console.error(err);
     }
@@ -395,11 +432,13 @@ function App() {
             className="form-control" 
             style={{ maxWidth: '300px', margin: 0, border: '1px solid var(--accent)' }} 
             value={selectedGuildId} 
-            onChange={e => {
-              setSelectedGuildId(e.target.value);
-              // Update source/dest guilds in Discord backup settings if empty
-              if (!config.settings.sourceGuild) updateSetting('sourceGuild', e.target.value);
-              if (!config.settings.destGuild) updateSetting('destGuild', e.target.value);
+            onChange={async e => {
+              const newId = e.target.value;
+              setSelectedGuildId(newId);
+              if (!config.settings.sourceGuild) updateSetting('sourceGuild', newId);
+              if (!config.settings.destGuild) updateSetting('destGuild', newId);
+              // Reload per-guild configs for the newly selected server
+              await fetchGuildConfigs(newId);
             }}
           >
             {guilds.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
@@ -839,16 +878,16 @@ function App() {
 
           <div className="terminal" style={{ flex: 1, minHeight: 0, height: '400px', maxHeight: '500px' }}>
             {logs.filter(log => {
-              if (activeTab === 'reddit') return log.message.startsWith('[Reddit]');
-              if (activeTab === 'redgifs') return log.message.startsWith('[Redgifs]');
-              return !log.message.startsWith('[Reddit]') && !log.message.startsWith('[Redgifs]');
+              if (activeTab === 'reddit') return log.message.includes('[Reddit]');
+              if (activeTab === 'redgifs') return log.message.includes('[Redgifs]');
+              return !log.message.includes('[Reddit]') && !log.message.includes('[Redgifs]');
             }).length === 0 ? (
-              <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>No logs yet...</div>
+              <div style={{ color: 'var(--text-muted)', textAlign: 'center', marginTop: '2rem' }}>No logs yet for this server...</div>
             ) : (
               logs.filter(log => {
-                if (activeTab === 'reddit') return log.message.startsWith('[Reddit]');
-                if (activeTab === 'redgifs') return log.message.startsWith('[Redgifs]');
-                return !log.message.startsWith('[Reddit]') && !log.message.startsWith('[Redgifs]');
+                if (activeTab === 'reddit') return log.message.includes('[Reddit]');
+                if (activeTab === 'redgifs') return log.message.includes('[Redgifs]');
+                return !log.message.includes('[Reddit]') && !log.message.includes('[Redgifs]');
               }).map(log => (
                 <div key={log.id} className="log-line">
                   <span className="log-time">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
