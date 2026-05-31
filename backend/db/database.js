@@ -68,6 +68,12 @@ async function initDbPostgres() {
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        try {
+            await runQuery(`ALTER TABLE logs ADD COLUMN guild_id TEXT`);
+        } catch (err) {
+            // Safe to ignore if column already exists
+        }
+
         await runQuery(`CREATE TABLE IF NOT EXISTS reddit_processed_posts (
             post_id TEXT PRIMARY KEY,
             subreddit TEXT,
@@ -114,6 +120,10 @@ function initDbSqlite() {
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )`);
 
+        db.run(`ALTER TABLE logs ADD COLUMN guild_id TEXT`, (err) => {
+            // Safe to ignore if column already exists
+        });
+
         db.run(`CREATE TABLE IF NOT EXISTS reddit_processed_posts (
             post_id TEXT PRIMARY KEY,
             subreddit TEXT,
@@ -127,6 +137,7 @@ function initDbSqlite() {
         )`);
     });
 }
+
 
 function runQuery(sql, params = []) {
     return new Promise((resolve, reject) => {
