@@ -52,7 +52,9 @@ function App() {
 
   const [channels, setChannels] = useState([]);
   const [logs, setLogs] = useState([]);
-  const logsEndRef = useRef(null);
+  const terminalRef = useRef(null);
+  const isFirstLoadRef = useRef(true);
+  const isConfigLoadedRef = useRef(false);
 
   const DELAY_OPTIONS = [
     { value: 1, label: '1 Second' },
@@ -78,10 +80,57 @@ function App() {
   }, [selectedGuildId]);
 
   useEffect(() => {
-    if (logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    if (terminalRef.current) {
+      const terminal = terminalRef.current;
+      const isNearBottom = terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight < 120;
+      if (isNearBottom || isFirstLoadRef.current) {
+        terminal.scrollTop = terminal.scrollHeight;
+        if (logs.length > 0) {
+          isFirstLoadRef.current = false;
+        }
+      }
     }
   }, [logs]);
+
+  // Auto-save Reddit Settings
+  useEffect(() => {
+    if (!selectedGuildId || !isConfigLoadedRef.current) return;
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        await fetch(`${API_BASE}/reddit/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guildId: selectedGuildId, settings: redditConfig.settings })
+        });
+        console.log('Reddit settings autosaved!');
+      } catch (err) {
+        console.error('Reddit autosave error:', err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [redditConfig]);
+
+  // Auto-save Redgifs Settings
+  useEffect(() => {
+    if (!selectedGuildId || !isConfigLoadedRef.current) return;
+
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        await fetch(`${API_BASE}/redgifs/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guildId: selectedGuildId, settings: redgifsConfig.settings })
+        });
+        console.log('Redgifs settings autosaved!');
+      } catch (err) {
+        console.error('Redgifs autosave error:', err);
+      }
+    }, 1000);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [redgifsConfig]);
 
   const fetchConfig = async (guildId = null) => {
     try {
@@ -120,6 +169,7 @@ function App() {
 
   const fetchGuildConfigs = async (guildId) => {
     if (!guildId) return;
+    isConfigLoadedRef.current = false;
     try {
       const [redditRes, redgifsRes] = await Promise.all([
         fetch(`${API_BASE}/reddit/config?guildId=${guildId}`),
@@ -145,10 +195,15 @@ function App() {
           }
         });
       }
+
+      setTimeout(() => {
+        isConfigLoadedRef.current = true;
+      }, 500);
     } catch (err) {
       console.error(err);
     }
   };
+
 
   const fetchStatus = async () => {
     if (!selectedGuildId) return;
@@ -357,9 +412,11 @@ function App() {
       searchTerm: '',
       channelId: '',
       guildId: selectedGuildId, // Automatically tag to selected Server
+      feedType: 'search', // default Redgifs feed type
       active: true,
       postDelay: 2.5,
-      sort: 'recent'
+      sort: 'recent',
+      mediaType: 'all' // default media option
     };
     setRedgifsConfig(prev => ({
       ...prev,
@@ -764,9 +821,24 @@ function App() {
                 <div key={feed.id} style={{ background: 'rgba(255,255,255,0.05)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1rem', borderLeft: feed.active ? '4px solid var(--success)' : '4px solid #555' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', gap: '1rem', flex: 1, marginRight: '1rem' }}>
+                      <div className="form-group" style={{ flex: '0 0 140px', margin: 0 }}>
+                        <label>Feed Type</label>
+                        <select className="form-control" value={feed.feedType || 'search'} onChange={e => updateRedgifsFeed(feed.id, 'feedType', e.target.value)}>
+                          <option value="search">Search / Tags</option>
+                          <option value="creator">Creator / User</option>
+                        </select>
+                      </div>
                       <div className="form-group" style={{ flex: 1, margin: 0 }}>
-                        <label>Search Term</label>
-                        <input type="text" className="form-control" placeholder="e.g. gaming" value={feed.searchTerm} onChange={e => updateRedgifsFeed(feed.id, 'searchTerm', e.target.value)} />
+                        <label>
+                          {feed.feedType === 'creator' ? 'Redgifs Creator' : 'Search Term'}
+                        </label>
+                        <input 
+                          type="text" 
+                          className="form-control" 
+                          placeholder={feed.feedType === 'creator' ? 'e.g. creator_name' : 'e.g. gaming'} 
+                          value={feed.searchTerm} 
+                          onChange={e => updateRedgifsFeed(feed.id, 'searchTerm', e.target.value)} 
+                        />
                       </div>
                       <div className="form-group" style={{ flex: 1, margin: 0 }}>
                         <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Target Channel</label>
@@ -788,6 +860,15 @@ function App() {
                         <option value="recent">Recent</option>
                         <option value="top">Top</option>
                         <option value="trending">Trending</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group" style={{ margin: 0, flex: 1, minWidth: '120px' }}>
+                      <label>Media Option</label>
+                      <select className="form-control" value={feed.mediaType || 'all'} onChange={e => updateRedgifsFeed(feed.id, 'mediaType', e.target.value)}>
+                        <option value="all">Videos & Pics</option>
+                        <option value="videos">Videos Only</option>
+                        <option value="images">Pics Only</option>
                       </select>
                     </div>
 
@@ -876,7 +957,7 @@ function App() {
              </div>
           )}
 
-          <div className="terminal" style={{ flex: 1, minHeight: 0, height: '400px', maxHeight: '500px' }}>
+          <div ref={terminalRef} className="terminal" style={{ flex: 1, minHeight: 0, height: '400px', maxHeight: '500px', overflowY: 'auto' }}>
             {logs.filter(log => {
               if (activeTab === 'reddit') return log.message.includes('[Reddit]');
               if (activeTab === 'redgifs') return log.message.includes('[Redgifs]');
@@ -895,8 +976,8 @@ function App() {
                 </div>
               ))
             )}
-            <div ref={logsEndRef} />
           </div>
+
         </div>
       </div>
     </div>

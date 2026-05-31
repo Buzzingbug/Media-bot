@@ -1,4 +1,5 @@
 const db = require('../db/database');
+const crypto = require('crypto');
 
 let redgifsToken = null;
 
@@ -17,6 +18,10 @@ async function getRedgifsToken() {
     return null;
 }
 
+function getUrlHash(url) {
+    return crypto.createHash('sha256').update(url).digest('hex');
+}
+
 async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
     if (isRunningFunc && !isRunningFunc()) return;
 
@@ -24,27 +29,50 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
         return;
     }
 
+    const order = feedConfig.sort || 'recent'; // recent, top, trending
+    const feedType = feedConfig.feedType || 'search';
+    const cleanSearchTerm = feedConfig.searchTerm.trim();
+
+    let feedUrl = '';
+    let logTarget = '';
+
+    if (feedType === 'creator') {
+        feedUrl = `https://api.redgifs.com/v2/users/${encodeURIComponent(cleanSearchTerm)}/search?count=50&order=${order}`;
+        logTarget = `creator: "${cleanSearchTerm}"`;
+    } else {
+        feedUrl = `https://api.redgifs.com/v2/gifs/search?search_text=${encodeURIComponent(cleanSearchTerm)}&count=50&order=${order}`;
+        logTarget = `search: "${cleanSearchTerm}"`;
+    }
+
     const channel = client.channels.cache.get(feedConfig.channelId);
     if (!channel) {
-        db.addLog('error', `[Redgifs] Could not find Discord channel ${feedConfig.channelId}`, guildId);
+        db.addLog('error', `[Redgifs] Could not find Discord channel ${feedConfig.channelId} for ${logTarget}`, guildId);
         return;
     }
 
     const token = await getRedgifsToken();
     if (!token) return;
 
-    db.addLog('info', `[Redgifs] Searching for '${feedConfig.searchTerm}'...`, guildId);
+    db.addLog('info', `[Redgifs] Polling ${logTarget}...`, guildId);
 
     try {
-        const order = feedConfig.sort || 'recent'; // recent, top, trending
-        const feedUrl = `https://api.redgifs.com/v2/gifs/search?search_text=${encodeURIComponent(feedConfig.searchTerm)}&count=50&order=${order}`;
-        
-        const response = await fetch(feedUrl, {
+        let response = await fetch(feedUrl, {
             headers: {
                 'Authorization': `Bearer ${token}`
             }
         });
         
+        // Fallback to global search if creator-specific endpoint is missing or fails
+        if (!response.ok && feedType === 'creator') {
+            db.addLog('info', `[Redgifs] User profile search failed for '${cleanSearchTerm}'. Falling back to global search...`, guildId);
+            const fallbackUrl = `https://api.redgifs.com/v2/gifs/search?search_text=${encodeURIComponent(cleanSearchTerm)}&count=50&order=${order}`;
+            response = await fetch(fallbackUrl, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
+        }
+
         if (!response.ok) {
             if (response.status === 401) {
                 redgifsToken = null; // Token expired, reset it
@@ -71,9 +99,32 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                 continue;
             }
 
+            // Media Option Filtering (Videos vs Pics)
+            const isVideo = gif.type === 1 || mediaUrl.includes('.mp4') || !!gif.urls?.mp4;
+            const isImage = gif.type === 2 || (!isVideo && (mediaUrl.includes('.jpg') || mediaUrl.includes('.jpeg') || mediaUrl.includes('.png')));
+
+            const mediaType = feedConfig.mediaType || 'all';
+            if (mediaType === 'videos' && !isVideo) {
+                await db.markRedgifsPostProcessed(postId, feedConfig.searchTerm);
+                continue;
+            }
+            if (mediaType === 'images' && !isImage) {
+                await db.markRedgifsPostProcessed(postId, feedConfig.searchTerm);
+                continue;
+            }
+
+            // Duplicate Media URL Prevention Check
+            const mediaHash = getUrlHash(mediaUrl);
+            const alreadyPosted = await db.isFilePosted(mediaHash);
+            if (alreadyPosted) {
+                await db.markRedgifsPostProcessed(postId, feedConfig.searchTerm);
+                continue;
+            }
+
             try {
                 await channel.send({ content: `[Watch Video](${mediaUrl})` });
                 await db.markRedgifsPostProcessed(postId, feedConfig.searchTerm);
+                await db.markFilePosted(mediaHash, mediaUrl);
                 newPostsCount++;
                 
                 const delayMs = (feedConfig.postDelay || 2.5) * 1000;
@@ -84,10 +135,10 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
         }
         
         if (newPostsCount > 0) {
-            db.addLog('info', `[Redgifs] Found and posted ${newPostsCount} new items for '${feedConfig.searchTerm}'`, guildId);
+            db.addLog('info', `[Redgifs] Found and posted ${newPostsCount} new items for ${logTarget}`, guildId);
         }
     } catch (feedErr) {
-        db.addLog('error', `[Redgifs] API Error for '${feedConfig.searchTerm}': ${feedErr.message}`, guildId);
+        db.addLog('error', `[Redgifs] API Error for ${logTarget}: ${feedErr.message}`, guildId);
     }
 }
 
@@ -108,7 +159,7 @@ async function checkRedgifsFeed(client, isRunningFunc, guildId) {
             }
             return processSingleFeed(feedConfig, client, isRunningFunc, guildId);
         });
-        await Promise.allSettled(promises);
+        await promises;
     } catch (err) {
         db.addLog('error', `[Redgifs Job] Error: ${err.message}`, guildId);
     }

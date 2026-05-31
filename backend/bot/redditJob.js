@@ -1,5 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const db = require('../db/database');
+const crypto = require('crypto');
 
 const FETCH_OPTIONS = {
     headers: {
@@ -9,6 +10,10 @@ const FETCH_OPTIONS = {
 
 const Parser = require('rss-parser');
 const parser = new Parser();
+
+function getUrlHash(url) {
+    return crypto.createHash('sha256').update(url).digest('hex');
+}
 
 async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
     if (isRunningFunc && !isRunningFunc()) return;
@@ -44,13 +49,12 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
         const feed = await parser.parseString(xml);
         
         let newPostsCount = 0;
-        // Extract items and process oldest first
         const posts = feed.items.reverse();
 
         for (const post of posts) {
             if (isRunningFunc && !isRunningFunc()) return;
 
-            const postId = post.id; // typically t3_xxxxxx
+            const postId = post.id;
             
             const alreadyProcessed = await db.isRedditPostProcessed(postId);
             if (alreadyProcessed) continue;
@@ -62,7 +66,15 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
             if (linkMatch && linkMatch[1]) {
                 mediaUrl = linkMatch[1];
             } else {
-                mediaUrl = post.link; // Fallback to permalink
+                mediaUrl = post.link;
+            }
+
+            // Duplicate Media URL Prevention Check
+            const mediaHash = getUrlHash(mediaUrl);
+            const alreadyPosted = await db.isFilePosted(mediaHash);
+            if (alreadyPosted) {
+                await db.markRedditPostProcessed(postId, cleanSubreddit);
+                continue;
             }
 
             let isImage = false;
@@ -78,9 +90,7 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
             if (isImage && feedConfig.mediaTypes && !feedConfig.mediaTypes.images) continue;
             if (isVideo && feedConfig.mediaTypes && !feedConfig.mediaTypes.videos) continue;
             
-            // For the user requirement: "only media link" -> If no media found, skip.
             if (!isImage && !isVideo && feedConfig.mediaTypes && (feedConfig.mediaTypes.images || feedConfig.mediaTypes.videos)) {
-                 // It's just a text post or link that isn't recognized media
                  await db.markRedditPostProcessed(postId, cleanSubreddit);
                  continue;
             }
@@ -114,6 +124,7 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                 }
 
                 await db.markRedditPostProcessed(postId, cleanSubreddit);
+                await db.markFilePosted(mediaHash, mediaUrl);
                 newPostsCount++;
                 
                 const delayMs = (feedConfig.postDelay || 2.5) * 1000;
