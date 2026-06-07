@@ -29,8 +29,8 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
         return;
     }
 
-    let order = feedConfig.sort || 'latest'; // latest, top, trending
-    if (order === 'recent') order = 'latest';
+    let order = feedConfig.sort || 'trending'; // trending, top
+    if (order === 'recent' || order === 'latest') order = 'trending';
     const feedType = feedConfig.feedType || 'search';
     const cleanSearchTerm = feedConfig.searchTerm.trim();
 
