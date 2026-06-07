@@ -675,10 +675,7 @@ function App() {
                       </div>
                       <div className="form-group" style={{ flex: 1, margin: 0 }}>
                         <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Target Channel</label>
-                        <select className="form-control" value={feed.channelId} onChange={e => updateFeed(feed.id, 'channelId', e.target.value)}>
-                          <option value="">Select Channel...</option>
-                          {filteredChannels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                        <input type="text" className="form-control" placeholder="Channel ID" value={feed.channelId} onChange={e => updateFeed(feed.id, 'channelId', e.target.value)} />
                       </div>
                     </div>
                     <button className="btn btn-danger" style={{ padding: '0.5rem' }} onClick={() => removeRedditFeed(feed.id)} title="Remove Feed">
@@ -842,10 +839,7 @@ function App() {
                       </div>
                       <div className="form-group" style={{ flex: 1, margin: 0 }}>
                         <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Target Channel</label>
-                        <select className="form-control" value={feed.channelId} onChange={e => updateRedgifsFeed(feed.id, 'channelId', e.target.value)}>
-                          <option value="">Select Channel...</option>
-                          {filteredChannels.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                        <input type="text" className="form-control" placeholder="Channel ID" value={feed.channelId} onChange={e => updateRedgifsFeed(feed.id, 'channelId', e.target.value)} />
                       </div>
                     </div>
                     <button className="btn btn-danger" style={{ padding: '0.5rem' }} onClick={() => removeRedgifsFeed(feed.id)} title="Remove Feed">
@@ -856,8 +850,8 @@ function App() {
                   <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                     <div className="form-group" style={{ margin: 0, flex: 1, minWidth: '120px' }}>
                       <label>Sort By</label>
-                      <select className="form-control" value={feed.sort || 'recent'} onChange={e => updateRedgifsFeed(feed.id, 'sort', e.target.value)}>
-                        <option value="recent">Recent</option>
+                      <select className="form-control" value={feed.sort || 'latest'} onChange={e => updateRedgifsFeed(feed.id, 'sort', e.target.value)}>
+                        <option value="latest">Latest</option>
                         <option value="top">Top</option>
                         <option value="trending">Trending</option>
                       </select>
