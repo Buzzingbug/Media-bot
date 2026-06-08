@@ -69,6 +69,22 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                 mediaUrl = post.link;
             }
 
+            // Filter out Imgur albums/galleries and Reddit ad tracking links
+            if (
+                mediaUrl.includes('imgur.com/a/') || 
+                mediaUrl.includes('imgur.com/gallery/') || 
+                mediaUrl.includes('alb.reddit.com') || 
+                mediaUrl.includes('out.reddit.com')
+            ) {
+                await db.markRedditPostProcessed(postId, cleanSubreddit);
+                continue;
+            }
+
+            // Convert generic imgur page links to direct image links to avoid Imgur app promo embeds
+            if (mediaUrl.match(/^https?:\/\/(www\.)?imgur\.com\/[a-zA-Z0-9]+$/)) {
+                mediaUrl = mediaUrl.replace('imgur.com', 'i.imgur.com') + '.jpg';
+            }
+
             // Duplicate Media URL Prevention Check
             const mediaHash = getUrlHash(mediaUrl);
             const alreadyPosted = await db.isFilePosted(mediaHash);
