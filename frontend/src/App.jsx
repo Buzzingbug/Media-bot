@@ -820,16 +820,17 @@ function App() {
                         <select className="form-control" value={feed.feedType || 'search'} onChange={e => updateRedgifsFeed(feed.id, 'feedType', e.target.value)}>
                           <option value="search">Search / Tags</option>
                           <option value="creator">Creator / User</option>
+                          <option value="niche">Niche</option>
                         </select>
                       </div>
                       <div className="form-group" style={{ flex: 1, margin: 0 }}>
                         <label>
-                          {feed.feedType === 'creator' ? 'Redgifs Creator' : 'Search Term'}
+                          {feed.feedType === 'creator' ? 'Redgifs Creator' : feed.feedType === 'niche' ? 'Redgifs Niche' : 'Search Term / Tag'}
                         </label>
                         <input 
                           type="text" 
                           className="form-control" 
-                          placeholder={feed.feedType === 'creator' ? 'e.g. creator_name' : 'e.g. gaming'} 
+                          placeholder={feed.feedType === 'creator' ? 'e.g. creator_name' : feed.feedType === 'niche' ? 'e.g. blonde' : 'e.g. gaming or #tag'} 
                           value={feed.searchTerm} 
                           onChange={e => updateRedgifsFeed(feed.id, 'searchTerm', e.target.value)} 
                         />

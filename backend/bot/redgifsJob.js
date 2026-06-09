@@ -37,6 +37,7 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
     // Support extracting from full URLs and prefixes
     const userUrlMatch = cleanSearchTerm.match(/redgifs\.com\/users\/([a-zA-Z0-9_-]+)/i);
     const tagUrlMatch = cleanSearchTerm.match(/redgifs\.com\/tags\/([a-zA-Z0-9_-]+)/i);
+    const nicheUrlMatch = cleanSearchTerm.match(/redgifs\.com\/niches\/([a-zA-Z0-9_-]+)/i);
 
     if (userUrlMatch) {
         cleanSearchTerm = userUrlMatch[1];
@@ -44,6 +45,9 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
     } else if (tagUrlMatch) {
         cleanSearchTerm = tagUrlMatch[1];
         feedType = 'search';
+    } else if (nicheUrlMatch) {
+        cleanSearchTerm = nicheUrlMatch[1];
+        feedType = 'niche';
     } else if (cleanSearchTerm.startsWith('@')) {
         cleanSearchTerm = cleanSearchTerm.substring(1);
         feedType = 'creator';
@@ -58,9 +62,14 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
     if (feedType === 'creator') {
         feedUrl = `https://api.redgifs.com/v2/users/${encodeURIComponent(cleanSearchTerm)}/search?count=50&order=${order}`;
         logTarget = `creator: "${cleanSearchTerm}"`;
+    } else if (feedType === 'niche') {
+        feedUrl = `https://api.redgifs.com/v2/gifs/search?niche=${encodeURIComponent(cleanSearchTerm)}&count=50&order=${order}`;
+        logTarget = `niche: "${cleanSearchTerm}"`;
     } else {
+        // Tag search works far better using 'search_text' internally, or possibly 'tags=' if users specifically want tags.
+        // But Redgifs generally handles tags as standard search_text anyway. Let's use search_text.
         feedUrl = `https://api.redgifs.com/v2/gifs/search?search_text=${encodeURIComponent(cleanSearchTerm)}&count=50&order=${order}`;
-        logTarget = `search: "${cleanSearchTerm}"`;
+        logTarget = `search/tag: "${cleanSearchTerm}"`;
     }
 
     const channel = client.channels.cache.get(feedConfig.channelId);
