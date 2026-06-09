@@ -853,6 +853,7 @@ function App() {
                       <select className="form-control" value={feed.sort || 'trending'} onChange={e => updateRedgifsFeed(feed.id, 'sort', e.target.value)}>
                         <option value="trending">Trending</option>
                         <option value="top">Top</option>
+                        <option value="oldest">Oldest</option>
                       </select>
                     </div>
 

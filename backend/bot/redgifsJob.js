@@ -81,16 +81,8 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
             }
         });
         
-        // Fallback to global search if creator-specific endpoint is missing or fails
-        if (!response.ok && feedType === 'creator') {
-            db.addLog('info', `[Redgifs] User profile search failed for '${cleanSearchTerm}'. Falling back to global search...`, guildId);
-            const fallbackUrl = `https://api.redgifs.com/v2/gifs/search?search_text=${encodeURIComponent(cleanSearchTerm)}&count=50&order=${order}`;
-            response = await fetch(fallbackUrl, {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-        }
+        // Removed broken fallback to global search because it ignores the creator tags and fetches random porn.
+        // If a creator fails, it should just fail gracefully rather than posting irrelevant content.
 
         if (!response.ok) {
             if (response.status === 401) {
