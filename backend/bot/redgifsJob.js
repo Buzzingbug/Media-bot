@@ -31,8 +31,26 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
 
     let order = feedConfig.sort || 'trending'; // trending, top
     if (order === 'recent' || order === 'latest') order = 'trending';
-    const feedType = feedConfig.feedType || 'search';
-    const cleanSearchTerm = feedConfig.searchTerm.trim();
+    let feedType = feedConfig.feedType || 'search';
+    let cleanSearchTerm = feedConfig.searchTerm.trim();
+
+    // Support extracting from full URLs and prefixes
+    const userUrlMatch = cleanSearchTerm.match(/redgifs\.com\/users\/([a-zA-Z0-9_-]+)/i);
+    const tagUrlMatch = cleanSearchTerm.match(/redgifs\.com\/tags\/([a-zA-Z0-9_-]+)/i);
+
+    if (userUrlMatch) {
+        cleanSearchTerm = userUrlMatch[1];
+        feedType = 'creator';
+    } else if (tagUrlMatch) {
+        cleanSearchTerm = tagUrlMatch[1];
+        feedType = 'search';
+    } else if (cleanSearchTerm.startsWith('@')) {
+        cleanSearchTerm = cleanSearchTerm.substring(1);
+        feedType = 'creator';
+    } else if (cleanSearchTerm.startsWith('#')) {
+        cleanSearchTerm = cleanSearchTerm.substring(1);
+        feedType = 'search';
+    }
 
     let feedUrl = '';
     let logTarget = '';
