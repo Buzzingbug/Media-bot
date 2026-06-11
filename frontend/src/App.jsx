@@ -7,27 +7,12 @@ const API_BASE = window.location.origin.includes('localhost')
   : '/api';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('discord');
+  const [activeTab, setActiveTab] = useState('reddit');
   
   // New State for servers
   const [guilds, setGuilds] = useState([]);
   const [selectedGuildId, setSelectedGuildId] = useState('');
   
-  const [config, setConfig] = useState({
-    settings: {
-      sourceGuild: '',
-      sourceChannel: '',
-      destGuild: '',
-      destChannel: '',
-      limit: 100,
-      mediaTypes: { images: true, videos: true },
-      deleteAfterSync: false,
-      ignoreBots: true,
-      dryRun: false,
-      postDelay: 2.5
-    }
-  });
-
   const [redditConfig, setRedditConfig] = useState({
     settings: {
       globalInterval: 10,
@@ -44,7 +29,6 @@ function App() {
 
   const [status, setStatus] = useState({
     isReady: false,
-    isRunning: false,
     isRedditRunning: false,
     isRedgifsRunning: false,
     progress: { total: 0, processed: 0, skipped: 0, errors: 0 }
@@ -134,20 +118,8 @@ function App() {
 
   const fetchConfig = async (guildId = null) => {
     try {
-      const targetGuild = guildId || selectedGuildId;
-      const [discordRes, channelsRes] = await Promise.all([
-        fetch(`${API_BASE}/config`),
-        fetch(`${API_BASE}/channels`).catch(() => ({ json: () => ({ channels: [], guilds: [] }) }))
-      ]);
+      const channelsRes = await fetch(`${API_BASE}/channels`).catch(() => ({ json: () => ({ channels: [], guilds: [] }) }));
       
-      const discordData = await discordRes.json();
-      if (discordData.settings) {
-        setConfig(prev => ({
-          ...prev,
-          settings: { ...prev.settings, ...discordData.settings }
-        }));
-      }
-
       if (channelsRes) {
         const channelsData = await channelsRes.json();
         if (channelsData.channels) {
@@ -222,40 +194,6 @@ function App() {
       const res = await fetch(`${API_BASE}/logs?guildId=${selectedGuildId}`);
       const data = await res.json();
       setLogs(data.logs.reverse());
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Discord Handlers
-  const handleSaveDiscord = async () => {
-    try {
-      const payload = { settings: config.settings };
-      await fetch(`${API_BASE}/config`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      alert('Discord Configuration saved successfully!');
-    } catch (err) {
-      alert('Failed to save configuration');
-    }
-  };
-
-  const handleStartDiscord = async () => {
-    try {
-      await handleSaveDiscord();
-      const res = await fetch(`${API_BASE}/start`, { method: 'POST' });
-      const data = await res.json();
-      if (data.error) alert(data.error);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleStopDiscord = async () => {
-    try {
-      await fetch(`${API_BASE}/stop`, { method: 'POST' });
     } catch (err) {
       console.error(err);
     }
@@ -348,10 +286,6 @@ function App() {
       console.error(err);
     }
   };
-
-  // State Updaters
-  const updateSetting = (key, value) => setConfig(prev => ({ ...prev, settings: { ...prev.settings, [key]: value } }));
-  const updateMediaType = (type, checked) => setConfig(prev => ({ ...prev, settings: { ...prev.settings, mediaTypes: { ...prev.settings.mediaTypes, [type]: checked } } }));
 
   // Reddit State Updaters
   const updateRedditGlobal = (key, value) => setRedditConfig(prev => ({ ...prev, settings: { ...prev.settings, [key]: value } }));
@@ -452,7 +386,7 @@ function App() {
     <div className="app-container">
       <div className="header">
         <h1>Media Vault</h1>
-        <p>Seamlessly backup media and integrate Reddit feeds directly into Discord</p>
+        <p>Seamlessly integrate Reddit & RedGifs feeds directly into Discord</p>
       </div>
 
       {/* Connection Warning Banner */}
@@ -475,43 +409,11 @@ function App() {
         </div>
       )}
 
-      {/* Global Server Selector */}
-      {status.isReady && guilds.length > 0 && (
-        <div className="glass-panel" style={{ marginBottom: '2rem', padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <HardDrive size={22} color="var(--accent)" />
-            <div>
-              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Active Discord Server</h3>
-              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-muted)' }}>Configure setup & channel lists for this server</p>
-            </div>
-          </div>
-          <select 
-            className="form-control" 
-            style={{ maxWidth: '300px', margin: 0, border: '1px solid var(--accent)' }} 
-            value={selectedGuildId} 
-            onChange={async e => {
-              const newId = e.target.value;
-              setSelectedGuildId(newId);
-              if (!config.settings.sourceGuild) updateSetting('sourceGuild', newId);
-              if (!config.settings.destGuild) updateSetting('destGuild', newId);
-              // Reload per-guild configs for the newly selected server
-              await fetchGuildConfigs(newId);
-            }}
-          >
-            {guilds.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-          </select>
-        </div>
-      )}
+
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', justifyContent: 'center' }}>
-        <button 
-          className={`btn ${activeTab === 'discord' ? 'btn-primary' : ''}`}
-          style={activeTab !== 'discord' ? { background: 'var(--bg-card)', color: 'var(--text-muted)' } : {}}
-          onClick={() => setActiveTab('discord')}
-        >
-          <MonitorUp size={18} /> Discord Backup
-        </button>
+
         <button 
           className={`btn ${activeTab === 'reddit' ? 'btn-primary' : ''}`}
           style={activeTab !== 'reddit' ? { background: 'var(--bg-card)', color: 'var(--text-muted)' } : {}}
@@ -531,99 +433,6 @@ function App() {
       <div className="grid">
         <div className="glass-panel" style={{ maxHeight: '80vh', overflowY: 'auto' }}>
           
-          {activeTab === 'discord' && (
-            <>
-              <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
-                <Settings size={24} color="var(--accent)" /> Discord Backup Config
-              </h2>
-              
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label><HardDrive size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Source Server ID</label>
-                  <input type="text" className="form-control" placeholder="Source Server Guild ID..." value={config.settings.sourceGuild || selectedGuildId} onChange={e => updateSetting('sourceGuild', e.target.value)} />
-                </div>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Source Channel</label>
-                  <input type="text" className="form-control" placeholder="Source Channel ID..." value={config.settings.sourceChannel} onChange={e => updateSetting('sourceChannel', e.target.value)} />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '1rem' }}>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label><HardDrive size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Dest Server ID</label>
-                  <input type="text" className="form-control" placeholder="Destination Server Guild ID..." value={config.settings.destGuild || selectedGuildId} onChange={e => updateSetting('destGuild', e.target.value)} />
-                </div>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label><Hash size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Dest Channel</label>
-                  <input type="text" className="form-control" placeholder="Destination Channel ID..." value={config.settings.destChannel} onChange={e => updateSetting('destChannel', e.target.value)} />
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label>Scan Limit (Messages)</label>
-                  <input type="number" className="form-control" value={config.settings.limit} onChange={e => updateSetting('limit', parseInt(e.target.value) || 100)} />
-                </div>
-                
-                <div className="form-group" style={{ flex: 1 }}>
-                  <label>Post Delay</label>
-                  <select className="form-control" value={config.settings.postDelay} onChange={e => updateSetting('postDelay', parseFloat(e.target.value))}>
-                    {DELAY_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                <div className="form-group" style={{ minWidth: '150px' }}>
-                  <label>Media Types</label>
-                  <div className="toggle-group">
-                    <label className="toggle">
-                      <input type="checkbox" checked={config.settings.mediaTypes.images} onChange={e => updateMediaType('images', e.target.checked)} />
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.9rem' }}><ImageIcon size={16}/> Images</span>
-                    </label>
-                    <label className="toggle">
-                      <input type="checkbox" checked={config.settings.mediaTypes.videos} onChange={e => updateMediaType('videos', e.target.checked)} />
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.9rem' }}><Video size={16}/> Videos</span>
-                    </label>
-                  </div>
-                </div>
-
-                <div className="form-group" style={{ minWidth: '150px' }}>
-                  <label>Job Options</label>
-                  <div className="toggle-group" style={{ flexWrap: 'wrap' }}>
-                    <label className="toggle" title="Ignore messages from other bots">
-                      <input type="checkbox" checked={config.settings.ignoreBots} onChange={e => updateSetting('ignoreBots', e.target.checked)} />
-                      <span style={{ fontSize: '0.9rem' }}>Ignore Bots</span>
-                    </label>
-                    <label className="toggle" title="Delete original message after posting">
-                      <input type="checkbox" checked={config.settings.deleteAfterSync} onChange={e => updateSetting('deleteAfterSync', e.target.checked)} />
-                      <span style={{ fontSize: '0.9rem' }}>Delete Original</span>
-                    </label>
-                    <label className="toggle" title="Scan and log without actually posting">
-                      <input type="checkbox" checked={config.settings.dryRun} onChange={e => updateSetting('dryRun', e.target.checked)} />
-                      <span style={{ fontSize: '0.9rem' }}>Dry Run</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem' }}>
-                <button className="btn btn-primary" onClick={handleSaveDiscord} style={{ flex: 1 }}>
-                  Save Settings
-                </button>
-                {!status.isRunning ? (
-                  <button className="btn btn-primary" onClick={handleStartDiscord} style={{ flex: 1, background: 'var(--success)' }}>
-                    <Play size={18} /> Start Backup
-                  </button>
-                ) : (
-                  <button className="btn btn-danger" onClick={handleStopDiscord} style={{ flex: 1 }}>
-                    <Square size={18} /> Stop Job
-                  </button>
-                )}
-              </div>
-            </>
-          )}
-
           {activeTab === 'reddit' && (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>

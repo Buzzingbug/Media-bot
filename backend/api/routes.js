@@ -8,19 +8,7 @@ const bot = require('../bot');
 router.get('/config', async (req, res) => {
     try {
         const token = await db.getConfig('discord_token');
-        const settings = await db.getConfig('backup_settings') || {
-            sourceGuild: '',
-            sourceChannel: '',
-            destGuild: '',
-            destChannel: '',
-            limit: 100,
-            mediaTypes: { images: true, videos: true },
-            deleteAfterSync: false,
-            ignoreBots: true,
-            dryRun: false,
-            postDelay: 2.5
-        };
-        res.json({ hasToken: !!token, settings });
+        res.json({ hasToken: !!token });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -28,42 +16,18 @@ router.get('/config', async (req, res) => {
 
 router.post('/config', async (req, res) => {
     try {
-        const { token, settings } = req.body;
+        const { token } = req.body;
         if (token) {
             await db.setConfig('discord_token', token);
             await bot.initializeIfConfigured();
         }
-        if (settings) {
-            await db.setConfig('backup_settings', settings);
-        }
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// ── Backup job (not guild-specific) ─────────────────────────────────────────
 
-router.post('/start', async (req, res) => {
-    try {
-        if (bot.isJobRunning()) {
-            return res.status(400).json({ error: 'A backup job is already running' });
-        }
-        await bot.startBackupJob();
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
-router.post('/stop', async (req, res) => {
-    try {
-        bot.stopBackupJob();
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
 
 // ── Status — per-guild ────────────────────────────────────────────────────────
 // Pass ?guildId=xxx or include guildId in body
@@ -72,10 +36,8 @@ router.get('/status', (req, res) => {
     const guildId = req.query.guildId || null;
     res.json({
         isReady: bot.isReady(),
-        isRunning: bot.isJobRunning(),
         isRedditRunning: guildId ? bot.isRedditPollerRunning(guildId) : false,
-        isRedgifsRunning: guildId ? bot.isRedgifsPollerRunning(guildId) : false,
-        progress: bot.getProgress()
+        isRedgifsRunning: guildId ? bot.isRedgifsPollerRunning(guildId) : false
     });
 });
 
