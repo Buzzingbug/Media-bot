@@ -1,10 +1,14 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const db = require('../db/database');
+const { runJob } = require('./backupJob');
 const { checkRedditFeed } = require('./redditJob');
 const { checkRedgifsFeed } = require('./redgifsJob');
 
 let client = null;
 let isBotReady = false;
+let jobRunning = false;
+let currentProgress = { total: 0, processed: 0, skipped: 0, errors: 0 };
+let abortController = null;
 
 // Per-guild poller state — keyed by guildId
 const redditIntervals = new Map();   // guildId -> intervalId
@@ -27,7 +31,8 @@ async function initializeIfConfigured() {
         client = new Client({ 
             intents: [
                 GatewayIntentBits.Guilds,
-                GatewayIntentBits.GuildMessages
+                GatewayIntentBits.GuildMessages,
+                GatewayIntentBits.MessageContent
             ] 
         });
 
@@ -55,7 +60,56 @@ function isReady() {
     return isBotReady && client && client.isReady();
 }
 
-// Backup Job removed per Option 2
+function isJobRunning() {
+    return jobRunning;
+}
+
+function getProgress() {
+    return currentProgress;
+}
+
+async function startBackupJob() {
+    if (!isReady()) {
+        throw new Error("Bot is not ready or not configured with a valid token.");
+    }
+    
+    if (jobRunning) {
+        throw new Error("Job is already running.");
+    }
+    
+    const settings = await db.getConfig('backup_settings');
+    if (!settings || !settings.sourceChannel || !settings.destChannel) {
+        throw new Error("Source and destination channels are not fully configured.");
+    }
+
+    jobRunning = true;
+    abortController = new AbortController();
+    
+    currentProgress = { total: 0, processed: 0, skipped: 0, errors: 0 };
+    db.addLog('info', `Starting backup job with limit ${settings.limit}`);
+    
+    runJob(client, settings, currentProgress, abortController.signal)
+        .then(() => {
+            db.addLog('info', `Backup job completed successfully. Processed: ${currentProgress.processed}, Skipped: ${currentProgress.skipped}`);
+        })
+        .catch(err => {
+            if (err.name === 'AbortError') {
+                db.addLog('warning', 'Backup job was stopped manually.');
+            } else {
+                db.addLog('error', `Backup job failed: ${err.message}`);
+            }
+        })
+        .finally(() => {
+            jobRunning = false;
+        });
+}
+
+function stopBackupJob() {
+    if (jobRunning && abortController) {
+        abortController.abort();
+        jobRunning = false;
+    }
+}
 
 // ── Per-guild Reddit poller ──────────────────────────────────────────────────
 
@@ -167,6 +221,10 @@ function getGuilds() {
 module.exports = {
     initializeIfConfigured,
     isReady,
+    isJobRunning,
+    getProgress,
+    startBackupJob,
+    stopBackupJob,
     startRedditPoller,
     stopRedditPoller,
     isRedditPollerRunning,
@@ -174,6 +232,5 @@ module.exports = {
     stopRedgifsPoller,
     isRedgifsPollerRunning,
     getChannels,
-    getGuilds,
-    getClient: () => client
+    getGuilds
 };
