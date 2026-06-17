@@ -168,13 +168,18 @@ async function checkRedditFeed(client, isRunningFunc, guildId) {
             return;
         }
         
-        const promises = config.feeds.map(async (feedConfig, index) => {
-            if (index > 0) {
-                await new Promise(r => setTimeout(r, index * 2000));
+        for (const feedConfig of config.feeds) {
+            if (isRunningFunc && !isRunningFunc()) break;
+            
+            try {
+                await processSingleFeed(feedConfig, client, isRunningFunc, guildId);
+            } catch (feedErr) {
+                db.addLog('error', `[Reddit Job] Error processing feed: ${feedErr.message}`, guildId);
             }
-            return processSingleFeed(feedConfig, client, isRunningFunc, guildId);
-        });
-        await Promise.allSettled(promises);
+            
+            // Wait 10 seconds between processing each feed to avoid Reddit 429 rate limits
+            await new Promise(r => setTimeout(r, 10000));
+        }
     } catch (err) {
         db.addLog('error', `[Reddit Job] Error: ${err.message}`, guildId);
     }
