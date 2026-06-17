@@ -750,7 +750,7 @@ function App() {
               <div className="form-group" style={{ background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '0.5rem', marginBottom: '1.5rem' }}>
                 <label style={{ marginBottom: '0.5rem', display: 'block' }}>Global Polling Interval</label>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  {[1, 5, 10, 15, 30, 60].map(mins => (
+                  {[60, 120, 180, 240, 360, 720, 1440].map(mins => (
                     <button 
                       key={mins}
                       onClick={() => updateRedditGlobal('globalInterval', mins)}
@@ -765,7 +765,7 @@ function App() {
                         fontWeight: 'bold'
                       }}
                     >
-                      {mins}m
+                      {mins >= 60 ? `${mins/60}h` : `${mins}m`}
                     </button>
                   ))}
                 </div>

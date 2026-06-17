@@ -2,6 +2,8 @@ const { EmbedBuilder } = require('discord.js');
 const db = require('../db/database');
 const crypto = require('crypto');
 
+const isExecuting = new Map();
+
 const FETCH_OPTIONS = {
     headers: {
         'User-Agent': 'DiscordBot:favbot-media-fetcher:v1.0.0 (by DiscordMediaBot)'
@@ -106,6 +108,18 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                  continue;
             }
 
+            // Dead Link Checker
+            try {
+                const headRes = await fetch(mediaUrl, { method: 'HEAD', ...FETCH_OPTIONS });
+                if (headRes.status === 404 || headRes.status === 403 || headRes.status === 410) {
+                    db.addLog('warning', `[Reddit] Skipping deleted media link for post ${postId}: ${mediaUrl}`, guildId);
+                    await db.markRedditPostProcessed(postId, cleanSubreddit);
+                    continue;
+                }
+            } catch (headErr) {
+                // Ignore HEAD fetch errors and try to post anyway
+            }
+
             // Discord native video playback fix using vxreddit proxy
             let discordPlaybackUrl = mediaUrl;
             if (isVideo && mediaUrl.includes('v.redd.it')) {
@@ -156,6 +170,12 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
 }
 
 async function checkRedditFeed(client, isRunningFunc, guildId) {
+    if (isExecuting.get(guildId)) {
+        db.addLog('warning', `[Reddit Job] Overlap prevented: Previous poll is still running for server.`, guildId);
+        return;
+    }
+    isExecuting.set(guildId, true);
+
     try {
         const config = guildId
             ? await db.getGuildConfig(guildId, 'reddit_settings')
@@ -179,6 +199,8 @@ async function checkRedditFeed(client, isRunningFunc, guildId) {
         }
     } catch (err) {
         db.addLog('error', `[Reddit Job] Error: ${err.message}`, guildId);
+    } finally {
+        isExecuting.set(guildId, false);
     }
 }
 
