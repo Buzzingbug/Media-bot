@@ -3,6 +3,7 @@ const db = require('../db/database');
 const { runJob } = require('./backupJob');
 const { checkRedditFeed } = require('./redditJob');
 const { checkRedgifsFeed } = require('./redgifsJob');
+const { checkWebFeed } = require('./webScraperJob');
 
 let client = null;
 let isBotReady = false;
@@ -16,6 +17,9 @@ const redditRunning   = new Map();   // guildId -> boolean
 
 const redgifsIntervals = new Map();
 const redgifsRunning   = new Map();
+
+const webIntervals = new Map();
+const webRunning   = new Map();
 
 async function initializeIfConfigured() {
     let token = await db.getConfig('discord_token');
@@ -175,6 +179,38 @@ function isRedgifsPollerRunning(guildId) {
     return redgifsRunning.get(guildId) === true;
 }
 
+// ── Per-guild Web Scraper poller ─────────────────────────────────────────────
+
+async function startWebPoller(guildId) {
+    if (!isReady()) throw new Error("Bot is not ready.");
+    if (webRunning.get(guildId)) throw new Error("Web Scraper poller is already running for this server.");
+    
+    const config = await db.getGuildConfig(guildId, 'web_settings');
+    const intervalMinutes = config && config.globalInterval ? config.globalInterval : 10;
+    
+    webRunning.set(guildId, true);
+    db.addLog('info', `[Web Scraper] Started polling for guild ${guildId} every ${intervalMinutes} minutes.`, guildId);
+    
+    const runCheck = () => checkWebFeed(client, () => webRunning.get(guildId) === true, guildId);
+    
+    runCheck();
+    const intervalId = setInterval(runCheck, intervalMinutes * 60 * 1000);
+    webIntervals.set(guildId, intervalId);
+}
+
+function stopWebPoller(guildId) {
+    if (webRunning.get(guildId) && webIntervals.has(guildId)) {
+        clearInterval(webIntervals.get(guildId));
+        webIntervals.delete(guildId);
+        webRunning.set(guildId, false);
+        db.addLog('info', `[Web Scraper] Stopped polling for guild ${guildId}.`, guildId);
+    }
+}
+
+function isWebPollerRunning(guildId) {
+    return webRunning.get(guildId) === true;
+}
+
 // ── Channel / Guild helpers ──────────────────────────────────────────────────
 
 function getChannels(guildId) {
@@ -231,6 +267,9 @@ module.exports = {
     startRedgifsPoller,
     stopRedgifsPoller,
     isRedgifsPollerRunning,
+    startWebPoller,
+    stopWebPoller,
+    isWebPollerRunning,
     getChannels,
     getGuilds
 };

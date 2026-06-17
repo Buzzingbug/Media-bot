@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Square, Settings, HardDrive, Hash, Image as ImageIcon, Video, Activity, RefreshCw, MonitorUp, Plus, Trash2, ShieldAlert } from 'lucide-react';
+import { Play, Square, Settings, HardDrive, Hash, Image as ImageIcon, Video, Activity, RefreshCw, MonitorUp, Plus, Trash2, ShieldAlert, Globe } from 'lucide-react';
 import './index.css';
 
 const API_BASE = window.location.origin.includes('localhost') 
@@ -47,6 +47,7 @@ function App() {
     isRunning: false,
     isRedditRunning: false,
     isRedgifsRunning: false,
+    isWebRunning: false,
     progress: { total: 0, processed: 0, skipped: 0, errors: 0 }
   });
 
@@ -111,6 +112,21 @@ function App() {
 
     return () => clearTimeout(delayDebounceFn);
   }, [redditConfig]);
+
+  // Auto-save Web Settings
+  useEffect(() => {
+    if (!selectedGuildId || !isConfigLoadedRef.current) return;
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        await fetch(`${API_BASE}/web/config`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ guildId: selectedGuildId, settings: webConfig.settings })
+        });
+      } catch (err) {}
+    }, 1000);
+    return () => clearTimeout(delayDebounceFn);
+  }, [webConfig]);
 
   // Auto-save Redgifs Settings
   useEffect(() => {
@@ -305,6 +321,50 @@ function App() {
     }
   };
 
+  // Web Handlers
+  const handleSaveWeb = async () => {
+    if (!selectedGuildId) return alert('Select a server first.');
+    try {
+      await fetch(`${API_BASE}/web/config`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: selectedGuildId, settings: webConfig.settings })
+      });
+      alert('Web Scraper Configuration saved successfully!');
+    } catch (err) {
+      alert('Failed to save Web config: ' + err.message);
+    }
+  };
+
+  const handleStartWeb = async () => {
+    if (!selectedGuildId) return alert('Select a server first.');
+    try {
+      await handleSaveWeb();
+      const res = await fetch(`${API_BASE}/web/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: selectedGuildId })
+      });
+      const data = await res.json();
+      if (data.error) alert('Error: ' + data.error);
+    } catch (err) {
+      alert('Failed to start Web poller: ' + err.message);
+    }
+  };
+
+  const handleStopWeb = async () => {
+    if (!selectedGuildId) return;
+    try {
+      await fetch(`${API_BASE}/web/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guildId: selectedGuildId })
+      });
+    } catch (err) {
+      alert('Failed to stop Web poller: ' + err.message);
+    }
+  };
+
   // Redgifs Handlers — now pass guildId
   const handleSaveRedgifs = async () => {
     if (!selectedGuildId) return alert('Select a server first');
@@ -402,6 +462,40 @@ function App() {
       }
     }));
   };
+
+  // Web State Updaters
+  const updateWebGlobal = (key, value) => setWebConfig(prev => ({ ...prev, settings: { ...prev.settings, [key]: value } }));
+  const addWebFeed = () => {
+    if (!selectedGuildId) return alert('Please select a server first.');
+    setWebConfig(prev => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        feeds: [...prev.settings.feeds, { 
+          id: Date.now().toString(),
+          guildId: selectedGuildId,
+          url: '',
+          selector: 'img',
+          channelId: channels.find(c => c.guildId === selectedGuildId)?.id || '',
+          postDelay: 2.5,
+          active: true 
+        }]
+      }
+    }));
+  };
+  const removeWebFeed = (id) => {
+    setWebConfig(prev => ({
+      ...prev,
+      settings: { ...prev.settings, feeds: prev.settings.feeds.filter(f => f.id !== id) }
+    }));
+  };
+  const updateWebFeed = (id, key, value) => {
+    setWebConfig(prev => ({
+      ...prev,
+      settings: { ...prev.settings, feeds: prev.settings.feeds.map(f => f.id === id ? { ...f, [key]: value } : f) }
+    }));
+  };
+  const filteredWebFeeds = webConfig.settings.feeds.filter(f => f.guildId === selectedGuildId || !f.guildId);
 
   // Redgifs State Updaters
   const updateRedgifsGlobal = (key, value) => setRedgifsConfig(prev => ({ ...prev, settings: { ...prev.settings, [key]: value } }));
@@ -776,7 +870,127 @@ function App() {
             </>
           )}
 
-          {activeTab === 'redgifs' && (
+          {activeTab === 'web' && (
+          <div className="panel animate-fade-in">
+            <div className="panel-header">
+              <div className="panel-title">
+                <div className="panel-icon">
+                  <Globe size={24} color="var(--accent)" /> Web Scraper Feeds Manager
+                </div>
+                <button className="btn btn-primary" style={{ padding: '0.5rem 1rem' }} onClick={addWebFeed}>
+                  <Plus size={16} /> Add Web Feed
+                </button>
+              </div>
+            </div>
+
+            <div className="form-group" style={{ marginBottom: '2rem' }}>
+              <label>Global Polling Interval (Minutes)</label>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                {[1, 5, 10, 15, 30, 60].map(mins => (
+                  <button 
+                    key={mins}
+                    className="btn"
+                    style={{ 
+                      background: webConfig.settings.globalInterval === mins ? 'var(--accent)' : 'rgba(255,255,255,0.1)',
+                      color: '#fff',
+                      border: '1px solid rgba(255,255,255,0.2)'
+                    }}
+                    onClick={() => updateWebGlobal('globalInterval', mins)}
+                  >
+                    {mins}m
+                  </button>
+                ))}
+              </div>
+              <p className="help-text">How often the bot checks all your web pages for new GIFs.</p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {filteredWebFeeds.map(feed => (
+                <div key={feed.id} className="feed-card animate-fade-in">
+                  <div className="feed-header">
+                    <div style={{ flex: 1 }}>
+                      <input 
+                        type="text" 
+                        className="form-control" 
+                        placeholder="https://example.com/gallery" 
+                        value={feed.url} 
+                        onChange={e => updateWebFeed(feed.id, 'url', e.target.value)} 
+                        style={{ background: 'rgba(0,0,0,0.2)', border: 'none', fontWeight: 'bold' }}
+                      />
+                    </div>
+                    <button className="btn btn-danger" style={{ padding: '0.5rem' }} onClick={() => removeWebFeed(feed.id)} title="Remove Feed">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                  
+                  <div className="feed-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div className="form-group">
+                      <label>CSS Selector (Optional)</label>
+                      <input 
+                        type="text" 
+                        className="form-control" 
+                        placeholder="img (Default)" 
+                        value={feed.selector} 
+                        onChange={e => updateWebFeed(feed.id, 'selector', e.target.value)} 
+                      />
+                      <p className="help-text" style={{ fontSize: '0.75rem' }}>E.g. .gallery img</p>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Target Channel</label>
+                      <select className="form-control" value={feed.channelId} onChange={e => updateWebFeed(feed.id, 'channelId', e.target.value)}>
+                        <option value="">Select a Channel...</option>
+                        {channels.filter(c => c.guildId === selectedGuildId).map(c => (
+                          <option key={c.id} value={c.id}>#{c.name}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label>Post Delay (Avoid Discord Rate Limit)</label>
+                      <select className="form-control" value={feed.postDelay || 2.5} onChange={e => updateWebFeed(feed.id, 'postDelay', parseFloat(e.target.value))}>
+                        {DELAY_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', paddingTop: '2rem' }}>
+                        <label className="toggle-switch">
+                          <input type="checkbox" checked={feed.active} onChange={e => updateWebFeed(feed.id, 'active', e.target.checked)} />
+                          <span className="slider"></span>
+                        </label>
+                        <span>Active</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {filteredWebFeeds.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '3rem', background: 'rgba(255,255,255,0.02)', borderRadius: '12px', border: '1px dashed rgba(255,255,255,0.1)' }}>
+                  No Web Scraper feeds configured for this server. Click "Add Web Feed" to start!
+                </div>
+              )}
+            </div>
+
+            <div className="actions" style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
+              <button className="btn btn-primary" onClick={handleSaveWeb} style={{ flex: 1 }}>
+                <HardDrive size={18} /> Save Config
+              </button>
+              {!status.isWebRunning ? (
+                <button className="btn btn-primary" onClick={handleStartWeb} style={{ flex: 1, background: 'var(--success)' }}>
+                  <Play size={18} /> Start Web Poller
+                </button>
+              ) : (
+                <button className="btn btn-danger" onClick={handleStopWeb} style={{ flex: 1 }}>
+                  <Square size={18} /> Stop Web Poller
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'redgifs' && (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
                 <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>

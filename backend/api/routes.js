@@ -75,6 +75,7 @@ router.get('/status', (req, res) => {
         isRunning: bot.isJobRunning(),
         isRedditRunning: guildId ? bot.isRedditPollerRunning(guildId) : false,
         isRedgifsRunning: guildId ? bot.isRedgifsPollerRunning(guildId) : false,
+        isWebRunning: guildId ? bot.isWebPollerRunning(guildId) : false,
         progress: bot.getProgress()
     });
 });
@@ -205,6 +206,61 @@ router.post('/redgifs/stop', async (req, res) => {
         const { guildId } = req.body;
         if (!guildId) return res.status(400).json({ error: 'guildId is required' });
         bot.stopRedgifsPoller(guildId);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ── Web Scraper — per-guild ──────────────────────────────────────────────────
+
+router.get('/web/config', async (req, res) => {
+    try {
+        const guildId = req.query.guildId;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+
+        const settings = await db.getGuildConfig(guildId, 'web_settings') || {
+            globalInterval: 10,
+            feeds: []
+        };
+        res.json({ settings });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/web/config', async (req, res) => {
+    try {
+        const { guildId, settings } = req.body;
+        if (!guildId) return res.status(400).json({ error: 'guildId is required' });
+        await db.setGuildConfig(guildId, 'web_settings', settings);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/web/start', async (req, res) => {
+    try {
+        const guildId = req.body.guildId;
+        if (!guildId) return res.status(400).json({ error: 'Missing guildId' });
+        
+        if (bot.isWebPollerRunning(guildId)) {
+            return res.status(400).json({ error: 'Web poller is already running' });
+        }
+        await bot.startWebPoller(guildId);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/web/stop', async (req, res) => {
+    try {
+        const guildId = req.body.guildId;
+        if (!guildId) return res.status(400).json({ error: 'Missing guildId' });
+        
+        bot.stopWebPoller(guildId);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
