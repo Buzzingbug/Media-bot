@@ -8,9 +8,6 @@ const FETCH_OPTIONS = {
     }
 };
 
-const Parser = require('rss-parser');
-const parser = new Parser();
-
 function getUrlHash(url) {
     return crypto.createHash('sha256').update(url).digest('hex');
 }
@@ -30,26 +27,21 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
         return;
     }
 
-    db.addLog('info', `[Reddit] Polling r/${cleanSubreddit} via RSS API...`, guildId);
+    db.addLog('info', `[Reddit] Polling r/${cleanSubreddit} via PullPush API...`, guildId);
     
     try {
-        const sort = feedConfig.sort || 'new';
-        const timeFilter = feedConfig.timeFilter || 'all';
-        let feedUrl = `https://www.reddit.com/r/${cleanSubreddit}/${sort}.rss?limit=100`;
-        if (sort === 'top' || sort === 'controversial') {
-            feedUrl += `&t=${timeFilter}`;
-        }
+        const sortType = feedConfig.sort === 'top' ? 'score' : 'created_utc';
+        const feedUrl = `https://api.pullpush.io/reddit/search/submission/?subreddit=${cleanSubreddit}&sort=desc&sort_type=${sortType}&size=100`;
 
         const response = await fetch(feedUrl, FETCH_OPTIONS);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        const xml = await response.text();
-        const feed = await parser.parseString(xml);
+        const json = await response.json();
+        const posts = (json.data || []).reverse(); // Reverse to process oldest first
         
         let newPostsCount = 0;
-        const posts = feed.items.reverse();
 
         for (const post of posts) {
             if (isRunningFunc && !isRunningFunc()) return;
@@ -59,14 +51,12 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
             const alreadyProcessed = await db.isRedditPostProcessed(postId);
             if (alreadyProcessed) continue;
             
-            // Extract media URL from RSS content
-            let mediaUrl = null;
-            const linkMatch = post.content ? post.content.match(/<span><a href="([^"]+)">\[link\]<\/a><\/span>/) : null;
+            // Extract media URL from PullPush JSON
+            let mediaUrl = post.url || post.url_overridden_by_dest;
             
-            if (linkMatch && linkMatch[1]) {
-                mediaUrl = linkMatch[1];
-            } else {
-                mediaUrl = post.link;
+            if (!mediaUrl) {
+                await db.markRedditPostProcessed(postId, cleanSubreddit);
+                continue;
             }
 
             // Filter out Imgur albums/galleries and Reddit ad tracking links
@@ -80,7 +70,7 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                 continue;
             }
 
-            // Convert generic imgur page links to direct image links to avoid Imgur app promo embeds
+            // Convert generic imgur page links to direct image links
             if (mediaUrl.match(/^https?:\/\/(www\.)?imgur\.com\/[a-zA-Z0-9]+$/)) {
                 mediaUrl = mediaUrl.replace('imgur.com', 'i.imgur.com') + '.jpg';
             }
@@ -100,6 +90,11 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                 isVideo = true;
             } else if (mediaUrl.match(/\.(jpg|jpeg|png|gif)$/i) || mediaUrl.includes('imgur.com') || mediaUrl.includes('i.redd.it')) {
                 isImage = true;
+            } else if (post.post_hint === 'image') {
+                isImage = true;
+            } else if (post.is_video) {
+                isVideo = true;
+                mediaUrl = post.media?.reddit_video?.fallback_url || mediaUrl;
             }
 
             // Apply Media filters
@@ -123,10 +118,10 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                 if (feedConfig.embedMode) {
                     const embed = new EmbedBuilder()
                         .setTitle((post.title || '').substring(0, 256))
-                        .setURL(post.link)
+                        .setURL(`https://www.reddit.com${post.permalink}`)
                         .setColor(0xFF4500)
                         .setAuthor({ name: `r/${cleanSubreddit}` })
-                        .setTimestamp(new Date(post.isoDate || Date.now()));
+                        .setTimestamp(new Date(post.created_utc * 1000));
                     
                     if (isImage) {
                         embed.setImage(discordPlaybackUrl);
@@ -152,9 +147,11 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
         
         if (newPostsCount > 0) {
             db.addLog('info', `[Reddit] Found and posted ${newPostsCount} new items from r/${cleanSubreddit}`, guildId);
+        } else {
+            db.addLog('info', `[Reddit] No new items found in r/${cleanSubreddit}`, guildId);
         }
     } catch (feedErr) {
-        db.addLog('error', `[Reddit] RSS Error for r/${cleanSubreddit}: ${feedErr.message}`, guildId);
+        db.addLog('error', `[Reddit] API Error for r/${cleanSubreddit}: ${feedErr.message}`, guildId);
     }
 }
 
@@ -177,7 +174,7 @@ async function checkRedditFeed(client, isRunningFunc, guildId) {
                 db.addLog('error', `[Reddit Job] Error processing feed: ${feedErr.message}`, guildId);
             }
             
-            // Wait 30 seconds between processing each feed to avoid Reddit 429 rate limits
+            // Wait 30 seconds between processing each feed to avoid PullPush rate limits
             await new Promise(r => setTimeout(r, 30000));
         }
     } catch (err) {
