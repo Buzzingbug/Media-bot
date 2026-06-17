@@ -177,8 +177,8 @@ async function checkRedditFeed(client, isRunningFunc, guildId) {
                 db.addLog('error', `[Reddit Job] Error processing feed: ${feedErr.message}`, guildId);
             }
             
-            // Wait 10 seconds between processing each feed to avoid Reddit 429 rate limits
-            await new Promise(r => setTimeout(r, 10000));
+            // Wait 30 seconds between processing each feed to avoid Reddit 429 rate limits
+            await new Promise(r => setTimeout(r, 30000));
         }
     } catch (err) {
         db.addLog('error', `[Reddit Job] Error: ${err.message}`, guildId);
