@@ -40,7 +40,7 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
             feedUrl += `&t=${timeFilter}`;
         }
 
-        const response = await fetch(feedUrl);
+        const response = await fetch(feedUrl, FETCH_OPTIONS);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
