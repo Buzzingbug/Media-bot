@@ -42,6 +42,13 @@ function App() {
     }
   });
 
+  const [webConfig, setWebConfig] = useState({
+    settings: {
+      globalInterval: 10,
+      feeds: []
+    }
+  });
+
   const [status, setStatus] = useState({
     isReady: false,
     isRunning: false,
@@ -187,9 +194,10 @@ function App() {
     if (!guildId) return;
     isConfigLoadedRef.current = false;
     try {
-      const [redditRes, redgifsRes] = await Promise.all([
+      const [redditRes, redgifsRes, webRes] = await Promise.all([
         fetch(`${API_BASE}/reddit/config?guildId=${guildId}`),
-        fetch(`${API_BASE}/redgifs/config?guildId=${guildId}`)
+        fetch(`${API_BASE}/redgifs/config?guildId=${guildId}`),
+        fetch(`${API_BASE}/web/config?guildId=${guildId}`)
       ]);
 
       const redditData = await redditRes.json();
@@ -208,6 +216,16 @@ function App() {
           settings: {
             globalInterval: redgifsData.settings.globalInterval || 10,
             feeds: redgifsData.settings.feeds || []
+          }
+        });
+      }
+
+      const webData = await webRes.json();
+      if (webData.settings) {
+        setWebConfig({
+          settings: {
+            globalInterval: webData.settings.globalInterval || 10,
+            feeds: webData.settings.feeds || []
           }
         });
       }
