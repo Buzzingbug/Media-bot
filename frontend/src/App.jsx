@@ -638,6 +638,13 @@ function App() {
         >
           <Video size={18} /> Redgifs Feed
         </button>
+        <button 
+          className={`btn ${activeTab === 'web' ? 'btn-primary' : ''}`}
+          style={activeTab !== 'web' ? { background: 'var(--bg-card)', color: 'var(--text-muted)' } : {}}
+          onClick={() => setActiveTab('web')}
+        >
+          <Globe size={18} /> Web Scraper
+        </button>
       </div>
 
       <div className="grid">
