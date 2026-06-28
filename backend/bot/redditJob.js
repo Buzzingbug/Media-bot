@@ -64,23 +64,12 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
             // Strip query parameters from URLs (e.g. ?utm_source=...)
             mediaUrl = mediaUrl.split('?')[0];
 
-            // Filter out Imgur albums/galleries/tags and Reddit ad tracking links
+            // Filter out ALL Imgur links (per user request) and Reddit ad tracking links
             if (
-                mediaUrl.includes('imgur.com/a/') || 
-                mediaUrl.includes('imgur.com/gallery/') || 
-                mediaUrl.includes('imgur.com/t/') || 
+                mediaUrl.includes('imgur.com') || 
                 mediaUrl.includes('alb.reddit.com') || 
                 mediaUrl.includes('out.reddit.com')
             ) {
-                await db.markRedditPostProcessed(postId, cleanSubreddit);
-                continue;
-            }
-
-            // Convert generic imgur page links to direct image links
-            if (mediaUrl.match(/^https?:\/\/(www\.)?(m\.)?imgur\.com\/[a-zA-Z0-9]+$/)) {
-                mediaUrl = mediaUrl.replace(/(www\.|m\.)?imgur\.com/, 'i.imgur.com') + '.jpg';
-            } else if (mediaUrl.includes('imgur.com') && !mediaUrl.includes('i.imgur.com') && !mediaUrl.match(/\.(jpg|jpeg|png|gif|gifv|mp4)$/i)) {
-                // If it's STILL a generic Imgur web link, discard it to avoid embedding web pages with ads
                 await db.markRedditPostProcessed(postId, cleanSubreddit);
                 continue;
             }
