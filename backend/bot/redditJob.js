@@ -6,7 +6,7 @@ const isExecuting = new Map();
 
 const FETCH_OPTIONS = {
     headers: {
-        'User-Agent': 'DiscordBot:favbot-media-fetcher:v1.0.0 (by DiscordMediaBot)'
+        'User-Agent': 'windows:favbot-media-fetcher:v1.0.0 (by /u/vibe)'
     }
 };
 
@@ -29,11 +29,14 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
         return;
     }
 
-    db.addLog('info', `[Reddit] Polling r/${cleanSubreddit} via PullPush API...`, guildId);
+    db.addLog('info', `[Reddit] Polling r/${cleanSubreddit} via Official Reddit API...`, guildId);
     
     try {
-        const sortType = feedConfig.sort === 'top' ? 'score' : 'created_utc';
-        const feedUrl = `https://api.pullpush.io/reddit/search/submission/?subreddit=${cleanSubreddit}&sort=desc&sort_type=${sortType}&size=100`;
+        const sortType = feedConfig.sort === 'top' ? 'top' : 'new';
+        let feedUrl = `https://www.reddit.com/r/${cleanSubreddit}/${sortType}.json?limit=100`;
+        if (sortType === 'top') {
+            feedUrl += '&t=day'; // Default to top of today to avoid scraping all-time top constantly
+        }
 
         const response = await fetch(feedUrl, FETCH_OPTIONS);
         if (!response.ok) {
@@ -41,7 +44,10 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
         }
         
         const json = await response.json();
-        const posts = (json.data || []).reverse(); // Reverse to process oldest first
+        
+        // Reddit's official JSON puts posts inside data.children[].data
+        const rawPosts = json.data?.children?.map(child => child.data) || [];
+        const posts = rawPosts.reverse(); // Reverse to process oldest first
         
         let newPostsCount = 0;
 
