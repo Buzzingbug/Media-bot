@@ -34,8 +34,9 @@ if (isPostgres) {
             console.error('[DB] Error opening database', err.message);
         } else {
             console.log('[DB] Connected to SQLite database.');
-            initDbSqlite();
-            resolveDbReady();
+            initDbSqlite().then(() => {
+                resolveDbReady();
+            });
         }
     });
 }
@@ -92,50 +93,50 @@ async function initDbPostgres() {
     }
 }
 
-function initDbSqlite() {
-    db.serialize(() => {
-        db.run(`CREATE TABLE IF NOT EXISTS config (
-            key TEXT PRIMARY KEY,
-            value TEXT
-        )`);
+async function initDbSqlite() {
+    await runQuery(`CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT
+    )`);
 
-        db.run(`CREATE TABLE IF NOT EXISTS guild_config (
-            guild_id TEXT NOT NULL,
-            key TEXT NOT NULL,
-            value TEXT,
-            PRIMARY KEY (guild_id, key)
-        )`);
+    await runQuery(`CREATE TABLE IF NOT EXISTS guild_config (
+        guild_id TEXT NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT,
+        PRIMARY KEY (guild_id, key)
+    )`);
 
-        db.run(`CREATE TABLE IF NOT EXISTS posted_files (
-            url_hash TEXT PRIMARY KEY,
-            url TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`);
+    await runQuery(`CREATE TABLE IF NOT EXISTS posted_files (
+        url_hash TEXT PRIMARY KEY,
+        url TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-        db.run(`CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            level TEXT,
-            message TEXT,
-            guild_id TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`);
+    await runQuery(`CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        level TEXT,
+        message TEXT,
+        guild_id TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-        db.run(`ALTER TABLE logs ADD COLUMN guild_id TEXT`, (err) => {
-            // Safe to ignore if column already exists
-        });
+    try {
+        await runQuery(`ALTER TABLE logs ADD COLUMN guild_id TEXT`);
+    } catch (err) {
+        // Safe to ignore if column already exists
+    }
 
-        db.run(`CREATE TABLE IF NOT EXISTS reddit_processed_posts (
-            post_id TEXT PRIMARY KEY,
-            subreddit TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`);
+    await runQuery(`CREATE TABLE IF NOT EXISTS reddit_processed_posts (
+        post_id TEXT PRIMARY KEY,
+        subreddit TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 
-        db.run(`CREATE TABLE IF NOT EXISTS redgifs_processed_posts (
-            post_id TEXT PRIMARY KEY,
-            search_term TEXT,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-        )`);
-    });
+    await runQuery(`CREATE TABLE IF NOT EXISTS redgifs_processed_posts (
+        post_id TEXT PRIMARY KEY,
+        search_term TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )`);
 }
 
 
