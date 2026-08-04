@@ -1,6 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const db = require('../db/database');
 const crypto = require('crypto');
+const cheerio = require('cheerio');
 
 const isExecuting = new Map();
 
@@ -33,9 +34,9 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
     
     try {
         const sortType = feedConfig.sort === 'top' ? 'top' : 'new';
-        let feedUrl = `https://www.reddit.com/r/${cleanSubreddit}/${sortType}.json?limit=100`;
+        let feedUrl = `https://www.reddit.com/r/${cleanSubreddit}/${sortType}/.rss?limit=100`;
         if (sortType === 'top') {
-            feedUrl += '&t=day'; // Default to top of today to avoid scraping all-time top constantly
+            feedUrl += '&t=day';
         }
 
         const response = await fetch(feedUrl, FETCH_OPTIONS);
@@ -43,11 +44,39 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        const json = await response.json();
+        const xml = await response.text();
+        const $ = cheerio.load(xml, { xmlMode: true });
         
-        // Reddit's official JSON puts posts inside data.children[].data
-        const rawPosts = json.data?.children?.map(child => child.data) || [];
-        const posts = rawPosts.reverse(); // Reverse to process oldest first
+        const posts = [];
+        $('entry').each((i, el) => {
+            const id = $(el).find('id').text();
+            
+            // Extract title and author
+            const title = $(el).find('title').text();
+            const author = $(el).find('author name').text();
+            
+            // Post link
+            const permalink = $(el).find('link').attr('href');
+            
+            // Parse updated timestamp for the Embed
+            const updated = $(el).find('updated').text();
+            
+            // Parse content HTML to find media links
+            const contentHtml = $(el).find('content').text();
+            const $c = cheerio.load(contentHtml);
+            
+            let url = permalink; // fallback
+            $c('a').each((_, a) => {
+                const href = $c(a).attr('href');
+                if (href && (href.match(/\.(jpg|jpeg|png|gif|mp4)$/i) || href.includes('i.redd.it') || href.includes('v.redd.it') || href.includes('imgur.com'))) {
+                    url = href;
+                }
+            });
+
+            posts.push({ id, title, author, permalink, url, updated, is_video: url.includes('v.redd.it') || url.includes('.mp4') });
+        });
+        
+        posts.reverse(); // Reverse to process oldest first
         
         let newPostsCount = 0;
 
@@ -95,11 +124,11 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                 isVideo = true;
             } else if (mediaUrl.match(/\.(jpg|jpeg|png|gif)$/i) || mediaUrl.includes('imgur.com') || mediaUrl.includes('i.redd.it')) {
                 isImage = true;
-            } else if (post.post_hint === 'image') {
-                isImage = true;
-            } else if (post.is_video) {
+            } else if (post.is_video && mediaUrl.includes('v.redd.it')) {
+                // In RSS, we only have the base v.redd.it link. 
+                // Discord usually unfurls these if we just send the permalink instead of the raw media link.
                 isVideo = true;
-                mediaUrl = post.media?.reddit_video?.fallback_url || mediaUrl;
+                mediaUrl = post.permalink;
             }
 
             // Apply Media filters
@@ -135,10 +164,10 @@ async function processSingleFeed(feedConfig, client, isRunningFunc, guildId) {
                 if (feedConfig.embedMode) {
                     const embed = new EmbedBuilder()
                         .setTitle((post.title || '').substring(0, 256))
-                        .setURL(`https://www.reddit.com${post.permalink}`)
+                        .setURL(post.permalink || 'https://www.reddit.com')
                         .setColor(0xFF4500)
                         .setAuthor({ name: `r/${cleanSubreddit}` })
-                        .setTimestamp(new Date(post.created_utc * 1000));
+                        .setTimestamp(post.updated ? new Date(post.updated) : new Date());
                     
                     if (isImage) {
                         embed.setImage(discordPlaybackUrl);
