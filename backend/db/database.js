@@ -228,6 +228,11 @@ async function getGuildConfig(guildId, key) {
     return row ? JSON.parse(row.value) : null;
 }
 
+async function getAllGuildConfigs(key) {
+    const rows = await allQuery(`SELECT guild_id, value FROM guild_config WHERE key = ?`, [key]);
+    return rows.map(r => ({ guildId: r.guild_id, value: JSON.parse(r.value) }));
+}
+
 async function setGuildConfig(guildId, key, value) {
     const val = JSON.stringify(value);
     if (isPostgres) {
@@ -329,6 +334,7 @@ module.exports = {
     getConfig,
     setConfig,
     getGuildConfig,
+    getAllGuildConfigs,
     setGuildConfig,
     addLog,
     getLogs,

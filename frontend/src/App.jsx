@@ -12,6 +12,7 @@ function App() {
   // New State for servers
   const [guilds, setGuilds] = useState([]);
   const [selectedGuildId, setSelectedGuildId] = useState('');
+  const [token, setToken] = useState('');
   
   const [config, setConfig] = useState({
     settings: {
@@ -265,12 +266,17 @@ function App() {
   const handleSaveDiscord = async () => {
     try {
       const payload = { settings: config.settings };
+      if (token.trim()) {
+        payload.token = token.trim();
+      }
       await fetch(`${API_BASE}/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       alert('Discord Configuration saved successfully!');
+      setToken('');
+      fetchConfig();
     } catch (err) {
       alert('Failed to save configuration');
     }
@@ -655,6 +661,20 @@ function App() {
               <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
                 <Settings size={24} color="var(--accent)" /> Discord Backup Config
               </h2>
+
+              <div className="form-group" style={{ marginBottom: '1.5rem', background: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '0.5rem' }}>
+                <label><ShieldAlert size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: '4px' }}/> Discord Bot Token</label>
+                <input 
+                  type="password" 
+                  className="form-control" 
+                  placeholder={status.isReady ? "Token is already set. Enter a new one to change it." : "Paste your Discord Bot Token here..."}
+                  value={token} 
+                  onChange={e => setToken(e.target.value)} 
+                />
+                <small style={{ color: 'var(--text-muted)', marginTop: '0.5rem', display: 'block' }}>
+                  Required to run the bot locally. You can get this from the Discord Developer Portal.
+                </small>
+              </div>
               
               <div style={{ display: 'flex', gap: '1rem' }}>
                 <div className="form-group" style={{ flex: 1 }}>

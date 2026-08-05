@@ -43,6 +43,7 @@ async function initializeIfConfigured() {
             isBotReady = true;
             console.log(`[Bot] Logged in as ${client.user.tag}`);
             db.addLog('info', `Bot logged in as ${client.user.tag}`);
+            startGlobalRedditPoller();
         });
 
         client.on('error', (error) => {
@@ -116,30 +117,26 @@ function stopBackupJob() {
 
 // ── Per-guild Reddit poller ──────────────────────────────────────────────────
 
+let globalRedditIntervalId = null;
+
+function startGlobalRedditPoller() {
+    if (globalRedditIntervalId) return;
+    const runCheck = () => checkRedditFeed(client, () => true);
+    runCheck();
+    // 10 minute global polling interval
+    globalRedditIntervalId = setInterval(runCheck, 10 * 60 * 1000);
+    db.addLog('info', '[Reddit] Global Centralized Poller started.');
+}
+
 async function startRedditPoller(guildId) {
     if (!isReady()) throw new Error("Bot is not ready.");
-    if (redditRunning.get(guildId)) throw new Error("Reddit poller is already running for this server.");
-    
-    const config = await db.getGuildConfig(guildId, 'reddit_settings');
-    const intervalMinutes = config && config.globalInterval ? config.globalInterval : 10;
-    
     redditRunning.set(guildId, true);
-    db.addLog('info', `[Reddit] Started polling for guild ${guildId} every ${intervalMinutes} minutes.`, guildId);
-    
-    const runCheck = () => checkRedditFeed(client, () => redditRunning.get(guildId) === true, guildId);
-    
-    runCheck();
-    const intervalId = setInterval(runCheck, intervalMinutes * 60 * 1000);
-    redditIntervals.set(guildId, intervalId);
+    db.addLog('info', `[Reddit] Master switch turned ON for server ${guildId}.`, guildId);
 }
 
 function stopRedditPoller(guildId) {
-    if (redditRunning.get(guildId) && redditIntervals.has(guildId)) {
-        clearInterval(redditIntervals.get(guildId));
-        redditIntervals.delete(guildId);
-        redditRunning.set(guildId, false);
-        db.addLog('info', `[Reddit] Stopped polling for guild ${guildId}.`, guildId);
-    }
+    redditRunning.set(guildId, false);
+    db.addLog('info', `[Reddit] Master switch turned OFF for server ${guildId}.`, guildId);
 }
 
 function isRedditPollerRunning(guildId) {

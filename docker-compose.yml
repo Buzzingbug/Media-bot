@@ -8,4 +8,6 @@ services:
       - "3001:3001"
     volumes:
       - ./data:/app/data
+    env_file:
+      - .env
     restart: unless-stopped
